@@ -14,7 +14,7 @@ from videollama2.model.builder import load_pretrained_model
 def inference():
     # Video Inference
     paths = ['assets/RoadAccidents127_x264.mp4']
-    questions = ['What is happening in the video?']
+    questions = ['Is there a vehicle in the video?']
     modal_list = ['video']
     #modal_list = ['image']
 
@@ -52,8 +52,8 @@ def inference():
             input_ids,
             images_or_videos=tensor,
             modal_list=modal_list,
-            do_sample=True,
-            temperature=0.2,
+            do_sample=False,
+            temperature=0.0,
             max_new_tokens=1024,
             use_cache=True,
             output_hidden_states=True,
