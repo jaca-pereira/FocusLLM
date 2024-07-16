@@ -9,6 +9,8 @@ import imageio
 import numpy as np
 from PIL import Image
 from decord import VideoReader, cpu
+from matplotlib import pyplot as plt
+import seaborn as sns
 from moviepy.editor import VideoFileClip
 from transformers import StoppingCriteria
 
@@ -549,3 +551,22 @@ class KeywordsStoppingCriteria(StoppingCriteria):
         for i in range(output_ids.shape[0]):
             outputs.append(self.call_for_batch(output_ids[i].unsqueeze(0), scores))
         return all(outputs)
+
+def plot_visualizations(all_hidden_states):
+    sims = []
+    min_sim = math.inf
+    max_sim = -math.inf
+    for layer_nr, layer in enumerate(all_hidden_states):
+        norm_hidden_states = torch.nn.functional.normalize(layer[0], p=2, dim=-1)
+        sim = torch.matmul(norm_hidden_states, norm_hidden_states.t())
+        sim = sim.cpu().detach().numpy()
+        sims.append(sim)
+        min_sim = min(min_sim, sim.min().item())
+        max_sim = max(max_sim, sim.max().item())
+    for layer_nr, sim in enumerate(sims):
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(sim, annot=False, cmap='coolwarm', vmin=min_sim, vmax=max_sim)
+        plt.title(f'Cosine Similarity Matrix for layer {layer_nr}')
+        plt.xlabel('Token Position')
+        plt.ylabel('Token Position')
+        plt.savefig(f'./figures/layer_{layer_nr}.png')
