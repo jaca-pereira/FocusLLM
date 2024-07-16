@@ -56,3 +56,5 @@ work_dirs*/
 pretrained/
 publish_models/
 public_models/
+
+/figures
