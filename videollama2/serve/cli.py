@@ -139,6 +139,6 @@ if __name__ == "__main__":
     parser.add_argument("--max-new-tokens", type=int, default=512)
     parser.add_argument("--load-8bit", action="store_true")
     parser.add_argument("--load-4bit", action="store_true")
-    parser.add_argument("--debug", action="store_true")
+    parser.add_argument("--sdebug", action="store_true")
     args = parser.parse_args()
     main(args)

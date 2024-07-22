@@ -7,25 +7,28 @@ import sys
 sys.path.append('./')
 from videollama2.conversation import conv_templates
 from videollama2.constants import DEFAULT_MMODAL_TOKEN, MMODAL_TOKEN_INDEX
-from videollama2.mm_utils import get_model_name_from_path, tokenizer_MMODAL_token, process_video, process_image
+from videollama2.mm_utils import get_model_name_from_path, tokenizer_MMODAL_token, process_video, process_image, visualize_average_attention, visualize_attention_vectors, \
+    visualize_hidden_states, visualize_hidden_states_distribution
 from videollama2.model.builder import load_pretrained_model
 
 
 def inference():
     # Video Inference
     paths = ['assets/RoadAccidents127_x264.mp4']
-    questions = ['Is there a vehicle in the video?']
+    #questions = ['Summarize the events in the video and name the main animals that appear.']
+    #questions = ['Summarize the events in the video and name the main objects that appear.']
+    questions = ['What is your opinion on the goal scored by Cristiano Ronaldo?']
     modal_list = ['video']
     #modal_list = ['image']
 
     # 1. Initialize the model.
-    model_path = 'DAMO-NLP-SG/VideoLLaMA2-7B-16F'
+    model_path = 'DAMO-NLP-SG/VideoLLaMA2-7B'
     # Base model inference (only need to replace model_path)
     # model_path = 'DAMO-NLP-SG/VideoLLaMA2-7B-Base'
     model_name = get_model_name_from_path(model_path)
     tokenizer, model, processor, context_len = load_pretrained_model(model_path, None, model_name)
     model = model.to('cuda:0')
-
+   
     conv_mode = 'llama_2'
 
     # 2. Visual preprocess (load & transform image or video).
@@ -48,19 +51,31 @@ def inference():
     input_ids = tokenizer_MMODAL_token(prompt, tokenizer, modal_token_index, return_tensors='pt').unsqueeze(0).to('cuda:0')
 
     with torch.inference_mode():
-        output_ids = model.generate(
+        outputs = model.generate(
             input_ids,
             images_or_videos=tensor,
             modal_list=modal_list,
-            do_sample=False,
-            temperature=0.0,
+            do_sample=True,
+            temperature=0.2,
             max_new_tokens=1024,
             use_cache=True,
             output_hidden_states=True,
+            output_attentions=True,
+            return_dict_in_generate=True,
         )
-
-    outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
-    print(outputs[0])
+    modal_token_position = (input_ids == modal_token_index).nonzero()[0, 1].item()
+    output_ids = outputs.sequences
+    attentions = outputs.attentions
+    hidden_states = outputs.hidden_states
+    prompt = questions[0].split(" ")[0]
+    video_path = paths[0].split('/')[-1].removesuffix('.mp4')
+    filename = "mistral"
+    visualize_hidden_states(hidden_states, modal_token_position, model.model.image_video_tokens, filename, video_path, prompt)
+    visualize_hidden_states_distribution(hidden_states, filename, video_path, prompt)
+    visualize_average_attention(attentions, modal_token_position, model.model.image_video_tokens, filename, video_path, prompt)
+    visualize_attention_vectors(attentions, output_ids, tokenizer, modal_token_position, model.model.image_video_tokens, filename, video_path, prompt)
+    response = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+    print(response[0])
 
 
 if __name__ == "__main__":

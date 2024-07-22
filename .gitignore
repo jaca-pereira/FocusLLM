@@ -58,5 +58,6 @@ publish_models/
 public_models/
 
 /figures
-
+/output
 sdebug
+test_debug.py

@@ -35,6 +35,7 @@ class Videollama2MetaModel:
         if hasattr(config, "mm_vision_tower"):
             self.vision_tower = build_vision_tower(config, delay_load=True)
             self.mm_projector = build_vision_projector(config)
+        self.image_video_tokens = -1
 
     def get_vision_tower(self):
         vision_tower = getattr(self, 'vision_tower', None)
@@ -166,7 +167,7 @@ class Videollama2MetaForCausalLM(ABC):
 
         Xs, keys = X_modalities
         X_features = self.encode_images_or_videos(Xs, keys)
-
+        self.get_model().image_video_tokens = X_features.shape[1]
         new_input_embeds = []
         new_labels = [] if labels is not None else None
         cur_X_idx = 0

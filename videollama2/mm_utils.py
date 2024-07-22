@@ -1,6 +1,9 @@
 import ast
+import itertools
 import math
 import base64
+import os
+import pickle
 from io import BytesIO
 
 import torch
@@ -12,12 +15,13 @@ from decord import VideoReader, cpu
 from matplotlib import pyplot as plt
 import seaborn as sns
 from moviepy.editor import VideoFileClip
+from scipy.stats import ks_2samp, entropy
 from transformers import StoppingCriteria
-
+import torch.nn.functional as F
 from scenedetect import open_video, SceneManager
 from scenedetect.detectors import ContentDetector
 from scenedetect.stats_manager import StatsManager
-
+from tqdm import tqdm as tqdm
 from .constants import NUM_FRAMES, MAX_FRAMES, NUM_FRAMES_PER_SECOND, MMODAL_INDEX_TOKEN, IMAGE_TOKEN_INDEX
 
 
@@ -552,21 +556,207 @@ class KeywordsStoppingCriteria(StoppingCriteria):
             outputs.append(self.call_for_batch(output_ids[i].unsqueeze(0), scores))
         return all(outputs)
 
-def plot_visualizations(all_hidden_states):
-    sims = []
-    min_sim = math.inf
-    max_sim = -math.inf
-    for layer_nr, layer in enumerate(all_hidden_states):
-        norm_hidden_states = torch.nn.functional.normalize(layer[0], p=2, dim=-1)
-        sim = torch.matmul(norm_hidden_states, norm_hidden_states.t())
-        sim = sim.cpu().detach().numpy()
-        sims.append(sim)
-        min_sim = min(min_sim, sim.min().item())
-        max_sim = max(max_sim, sim.max().item())
-    for layer_nr, sim in enumerate(sims):
+def visualize_hidden_states(all_hidden_states, modal_token_position, num_image_video_tokens, filename, video_path, prompt):
+    start_image_video = modal_token_position + 1
+    end_image_video = start_image_video + num_image_video_tokens
+    hidden_states = torch.cat(all_hidden_states[0], 0)
+    norm_hidden_states = hidden_states / hidden_states.norm(dim=-1, keepdim=True, p=2)
+    similarity_matrix = torch.matmul(norm_hidden_states, norm_hidden_states.transpose(1, 2)).cpu().detach().numpy()
+    max_sim = np.max(similarity_matrix)
+    min_sim = np.min(similarity_matrix)
+    print(f'Maximum similarity: {max_sim}')
+    print(f'Minimum similarity: {min_sim}')
+    os.makedirs('./figures', exist_ok=True)
+    os.makedirs(f'./figures/{filename}', exist_ok=True)
+    os.makedirs(f'./figures/{filename}/hidden_states', exist_ok=True)
+    os.makedirs(f'./figures/{filename}/hidden_states/{video_path}', exist_ok=True)
+    os.makedirs(f'./figures/{filename}/hidden_states/{video_path}/{prompt}', exist_ok=True)
+    for layer_nr, sim in enumerate(similarity_matrix):
         plt.figure(figsize=(10, 8))
         sns.heatmap(sim, annot=False, cmap='coolwarm', vmin=min_sim, vmax=max_sim)
+        plt.axvline(start_image_video + 1, color='green', linestyle='dashed', linewidth=1, label='begin_image_video')
+        plt.axvline(end_image_video, color='green', linestyle='dashed', linewidth=1,
+                    label='end_image_video')
+        plt.axhline(start_image_video, color='green', linestyle='dashed', linewidth=1)
+        plt.axhline(end_image_video, color='green', linestyle='dashed', linewidth=1)
+        # legend
+        plt.legend(loc='upper right')
         plt.title(f'Cosine Similarity Matrix for layer {layer_nr}')
         plt.xlabel('Token Position')
         plt.ylabel('Token Position')
-        plt.savefig(f'./figures/layer_{layer_nr}.png')
+        plt.savefig(f'./figures/{filename}/hidden_states/{video_path}/{prompt}/layer_{layer_nr}.png')
+        plt.close()
+
+
+def visualize_hidden_states_distribution(all_hidden_states, filename, video_path, prompt):
+    hidden_states = torch.cat(all_hidden_states[0], 0)
+    norm_hidden_states = hidden_states / hidden_states.norm(dim=-1, keepdim=True, p=2)
+    similarity_matrix = torch.matmul(norm_hidden_states, norm_hidden_states.transpose(1, 2)).cpu().detach().numpy()
+    #save the distribution of cosine similarity for each layer and the final.
+    pkl_path = f'./figures/{filename}/hidden_states/{video_path}/{prompt}/similarity_matrix.pkl'
+    pickle.dump(similarity_matrix, open(pkl_path, 'wb'))
+    # Determine grid size
+    num_layers = len(norm_hidden_states)
+    grid_size = math.ceil(math.sqrt(num_layers))  # Square root to find grid size
+    fig, axs = plt.subplots(grid_size, grid_size, figsize=(2 * grid_size, 2 * grid_size))
+    fig.suptitle('Cosine Similarity Distribution Across Layers')
+
+    for i, cos_sim in enumerate(tqdm(similarity_matrix)):
+        row = i // grid_size
+        col = i % grid_size
+        if grid_size == 1:  # If there's only one subplot, axs is not a 2D array
+            ax = axs
+        else:
+            ax = axs[row, col]
+        ax.hist(cos_sim.flatten(), bins=10, alpha=0.75)
+        ax.set_title(f'Layer {i + 1}')
+        ax.set_xlim([-1, 1])
+
+    # Hide empty subplots
+    for i in range(num_layers, grid_size ** 2):
+        row = i // grid_size
+        col = i % grid_size
+        if grid_size > 1:
+            axs[row, col].axis('off')
+
+    plt.tight_layout()
+    plt.savefig(f'./figures/{filename}/hidden_states/{video_path}/{prompt}/distribution.png')
+    plt.close()
+
+def visualize_average_attention(attentions, modal_token_position, num_image_video_tokens, filename, video_path, prompt, min_attention=0.0, max_attention=0.02):
+    os.makedirs('./figures', exist_ok=True)
+    os.makedirs(f'./figures/{filename}', exist_ok=True)
+    os.makedirs(f'./figures/{filename}/attention_maps', exist_ok=True)
+    os.makedirs(f'./figures/{filename}/attention_maps/{video_path}', exist_ok=True)
+    os.makedirs(f'./figures/{filename}/attention_maps/{video_path}/{prompt}', exist_ok=True)
+    avg_attention_maps = torch.cat(attentions[0], 0).mean(1).cpu().detach().numpy()
+    avg_attention_maps = avg_attention_maps.clip(min_attention, max_attention)
+    for layer_nr, attention_map in enumerate(avg_attention_maps):
+        sns.heatmap(attention_map, cmap='viridis', cbar=True, vmin=min_attention, vmax=max_attention)
+        plt.xlabel('Token index')
+        plt.ylabel('Token index')
+        plt.axvline(modal_token_position, color='red', linestyle='dashed', linewidth=1, label='begin_image_video')
+        plt.axvline(modal_token_position + num_image_video_tokens, color='red', linestyle='dashed', linewidth=1,label='end_image_video')
+        plt.axhline(modal_token_position, color='red', linestyle='dashed', linewidth=1)
+        plt.axhline(modal_token_position + num_image_video_tokens, color='red', linestyle='dashed', linewidth=1)
+        plt.title(f'Layer {layer_nr}')
+        plt.savefig(f'./figures/{filename}/attention_maps/{video_path}/{prompt}/layer_{layer_nr}.png')
+        plt.close()
+
+
+
+def visualize_attention_vectors(attentions, output_ids, tokenizer, modal_token_position, num_image_video_tokens, filename, video_path, prompt, min_attention=0.0, max_attention=0.02):
+    os.makedirs('./figures', exist_ok=True)
+    os.makedirs(f'./figures/{filename}', exist_ok=True)
+    os.makedirs(f'./figures/{filename}/attention_vectors', exist_ok=True)
+    os.makedirs(f'./figures/{filename}/attention_vectors/{video_path}', exist_ok=True)
+    os.makedirs(f'./figures/{filename}/attention_vectors/{video_path}/{prompt}', exist_ok=True)
+
+    # Decode the output_ids to tokens
+    output_ids = output_ids.squeeze().tolist()
+    tokens = tokenizer.convert_ids_to_tokens(output_ids)
+    tokens = [token.replace('▁', ' ') for token in tokens]
+
+    # Distinguish repeated tokens
+    for i in range(1, len(tokens)):
+        for j in range(i):
+            if tokens[i] == tokens[j]:
+                tokens[i] = f'{tokens[i]}_{i}'
+
+    start_image_video = modal_token_position + 1
+    end_image_video = start_image_video + num_image_video_tokens
+    end_input = attentions[0][0].shape[-1]
+    #clip the attention values
+    attention_vector = [torch.cat(attention, 0).mean(dim=(0, 1)).cpu().detach().numpy() for attention in attentions]
+    attention_vector = [np.clip(attention, min_attention, max_attention) for attention in attention_vector]
+    for idx, attention in enumerate(tqdm(attention_vector)):
+        fig, ax = plt.subplots(figsize=(20, 5))
+        # Add vertical dashed lines to delimit the segments
+        line_begin_image = ax.axvline(x=start_image_video - 0.5, color='red', linestyle='dashed', linewidth=1,
+                                      label='begin_image_video')
+        line_end_image = ax.axvline(x=end_image_video - 0.5, color='red', linestyle='dashed', linewidth=1,
+                                    label='end_image_video')
+        line_end_input = ax.axvline(x=end_input - 0.5, color='black', linestyle='dashed', linewidth=1,
+                                    label='end_input')
+        if idx == 0:
+            sns.heatmap(attention, cmap='viridis', cbar=True, ax=ax, vmin=min_attention, vmax=max_attention)
+            line_begin_image_ = ax.axhline(y=start_image_video - 0.5, color='red', linestyle='dashed', linewidth=1,
+                                           label='begin_image_video')
+            line_end_image_ = ax.axhline(y=end_image_video - 0.5, color='red', linestyle='dashed', linewidth=1,
+                                         label='end_image_video')
+            line_end_input_ = ax.axhline(y=end_input - 0.5, color='black', linestyle='dashed', linewidth=1,
+                                         label='end_input')
+            ax.legend(handles=[line_begin_image, line_end_image, line_end_input, line_begin_image_, line_end_image_,
+                               line_end_input_], loc='upper center')
+        else:
+            # Plot the attention vector as a bar plot
+            ax.bar(range(len(attention[0])), attention[0], color='blue')
+            plt.ylim(min_attention, max_attention)
+            ax.legend(handles=[line_begin_image, line_end_image, line_end_input], loc='upper center')
+
+            ax.set_xticks(range(len(attention)))
+            ax.set_xlabel('Previous Tokens')
+            ax.set_ylabel('Attention')
+        ax.set_title(f'Attention for Token {tokens[idx]}')
+        plt.tight_layout()
+
+        plt.savefig(f'./figures/{filename}/attention_vectors/{video_path}/{prompt}/token_{idx}.png')
+        plt.close()
+
+
+def compare_distributions(data, bins=50):
+    num_data = len(data)
+    results = {}
+    os.makedirs('./figures', exist_ok=True)
+    os.makedirs(f'./figures/distribution_comparison', exist_ok=True)
+    for (i, j) in itertools.combinations(range(num_data), 2):
+        data1 = data[i]
+        data2 = data[j]
+        prompt1 = data1.prompt
+        prompt2 = data2.prompt
+        video1 = data1.video
+        video2 = data2.video
+        # 1. Histogram Comparison
+        plt.figure(figsize=(12, 6))
+        plt.hist(data1, bins=bins, alpha=0.5, label=f'Video {video1}')
+        plt.hist(data2, bins=bins, alpha=0.5, label=f'Video {video2}')
+        plt.title(f'Histogram Comparison: video {video1}, prompt {prompt1} vs video {video2}, prompt {prompt2}')
+        plt.xlabel('Cosine Similarity')
+        plt.ylabel('Frequency')
+        plt.legend(loc='upper right')
+        plt.savefig(f'./figures/distribution_comparison/histogram_comparison_{video1}_{prompt1}_vs_{video2}_{prompt2}.png')
+        plt.close()
+
+        # 2. Kolmogorov-Smirnov Test
+        ks_stat, ks_p_value = ks_2samp(data1, data2)
+        print(f"Kolmogorov-Smirnov Test: Video {video1}, Prompt {prompt1} vs Video {video2}, Prompt {prompt2}: Statistic={ks_stat}, p-value={ks_p_value}")
+
+        # 3. Earth Mover's Distance
+        emd = np.sum(np.abs(np.sort(data1) - np.sort(data2)))
+        print(f"Earth Mover's Distance: Video {video1}, Prompt {prompt1} vs Video {video2}, Prompt {prompt2}: {emd}")
+
+        # 4. KL Divergence
+        # Create histogram-based probability distributions
+        hist1, bin_edges1 = np.histogram(data1, bins=bins, density=True)
+        hist2, bin_edges2 = np.histogram(data2, bins=bins, density=True)
+        kl_divergence = entropy(hist1 + 1e-10, hist2 + 1e-10)  # Adding small value to avoid division by zero
+        print(f"KL Divergence: Video {video1}, Prompt {prompt1} vs Video {video2}, Prompt {prompt2}: {kl_divergence}")
+
+        with open(f'./figures/distribution_comparison/{video1}_{prompt1}_vs_{video2}_{prompt2}.txt', 'w') as f:
+            f.write(f"Kolmogorov-Smirnov Test: Statistic={ks_stat}, p-value={ks_p_value}\n")
+            f.write(f"Earth Mover's Distance: {emd}\n")
+            f.write(f"KL Divergence: {kl_divergence}\n")
+
+        # 5. Cumulative Distribution Function (CDF) Plot
+        cdf1 = np.cumsum(hist1 * np.diff(bin_edges1))
+        cdf2 = np.cumsum(hist2 * np.diff(bin_edges2))
+
+        plt.figure(figsize=(12, 6))
+        plt.plot(bin_edges1[1:], cdf1, label=f'Video {video1} CDF')
+        plt.plot(bin_edges2[1:], cdf2, label=f'Video {video2} CDF')
+        plt.title(f'Cumulative Distribution Function (CDF) Comparison:  Video {video1}, Prompt {prompt1} vs Video {video2}, Prompt {prompt2}')
+        plt.xlabel('Cosine Similarity')
+        plt.ylabel('Cumulative Probability')
+        plt.legend(loc='upper left')
+        plt.savefig(f'./figures/distribution_comparison/cdf_comparison_{video1}_{prompt1}_vs_{video2}_{prompt2}.png')
+        plt.close()
