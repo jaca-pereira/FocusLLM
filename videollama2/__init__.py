@@ -21,7 +21,7 @@ def model_init(model_path=None):
     # ADD NEW CONFIG OPTIONS
     model.get_model().config.pad_token = tokenizer.pad_token_id
     model.get_model().config.ratio = 2
-    model.get_model().config.merge_layer = 28
+    model.get_model().config.merge_layer = 3
 
 
     num_frames = model.config.num_frames if hasattr(model.config, "num_frames") else NUM_FRAMES
