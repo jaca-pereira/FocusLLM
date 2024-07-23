@@ -14,6 +14,8 @@ logger = logging.get_logger(__name__)
 class FocusLLMModel(MistralModel):
     def __init__(self, config: MistralConfig):
         super().__init__(config)
+        self.last_attention = None
+
     def forward(
             self,
             input_ids: torch.LongTensor = None,
@@ -125,17 +127,28 @@ class FocusLLMModel(MistralModel):
                     use_cache,
                 )
             else:
-
-                if decoder_layer.self_attn.layer_idx == self.config.merge_layer and seq_length > 1:
-
-                    hidden_states_image_or_video = hidden_states[:, self.modal_token_index[0]:self.image_video_tokens]
+                if self.config.token_merging and decoder_layer.self_attn.layer_idx == self.config.merge_layer and seq_length > 1:
+                    hidden_states_image_or_video = hidden_states[:, self.modal_token_index[0]:(self.modal_token_index[0] + self.image_video_tokens)]
+                    original_size = len(hidden_states_image_or_video[0])
                     ratio = len(hidden_states_image_or_video[0]) // self.config.ratio
                     merge, _ = bipartite_soft_matching(hidden_states_image_or_video, r= ratio)
                     hidden_states_image_or_video, after_size = merge_wavg(merge, hidden_states_image_or_video, self.config.pad_token)
-                    hidden_states = torch.cat((hidden_states[:, :self.modal_token_index[0]], hidden_states_image_or_video, hidden_states[:, self.image_video_tokens:]), dim=1)
+                    ratio = len(hidden_states_image_or_video[0]) // (self.config.ratio*2)
+                    merge, _ = bipartite_soft_matching(hidden_states_image_or_video, r=ratio)
+                    hidden_states_image_or_video, after_size = merge_wavg(merge, hidden_states_image_or_video, self.config.pad_token, original_size=original_size)
+                    hidden_states = torch.cat((hidden_states[:, :self.modal_token_index[0].item()], hidden_states_image_or_video, hidden_states[:, (self.modal_token_index[0] + self.image_video_tokens):]), dim=1)
                     if attention_mask is not None:
-                        attention_mask[..., (self.modal_token_index[0] + after_size):self.image_video_tokens, :] = attention_mask[0, 0, 0, -1].item()
-                        attention_mask[..., (self.modal_token_index[0] + after_size):self.image_video_tokens] = attention_mask[0, 0, 0, -1].item()
+                        attention_mask[..., (self.modal_token_index[0].item() + after_size):(self.modal_token_index[0] + self.image_video_tokens), :] = attention_mask[0, 0, 0, -1].item()
+                        attention_mask[..., (self.modal_token_index[0].item() + after_size):(self.modal_token_index[0] + self.image_video_tokens)] = attention_mask[0, 0, 0, -1].item()
+                elif not self.config.token_merging and decoder_layer.self_attn.layer_idx == self.config.merge_layer and seq_length > 1:
+                        image_attention_score = self.last_attention.mean(dim=1)[0][-1][self.modal_token_index[0]:(self.modal_token_index[0] + self.image_video_tokens)]
+                        ratio = int(self.image_video_tokens * self.config.ratio)
+                        bottom_attention_rank_index = image_attention_score.topk(ratio, largest=False).indices + self.modal_token_index[0]
+                        bottom_attention_rank_index = bottom_attention_rank_index.sort().values
+                        hidden_states[..., bottom_attention_rank_index, :] = self.config.pad_token
+                        if attention_mask is not None:
+                            attention_mask[..., bottom_attention_rank_index, :] = attention_mask[0, 0, 0, -1].item()
+                            attention_mask[..., bottom_attention_rank_index] = attention_mask[0, 0, 0, -1].item()
 
                 layer_outputs = decoder_layer(
                     hidden_states,
@@ -145,6 +158,9 @@ class FocusLLMModel(MistralModel):
                     output_attentions=output_attentions,
                     use_cache=use_cache,
                 )
+
+                if not self.config.token_merging  and decoder_layer.self_attn.layer_idx == self.config.merge_layer - 1:
+                        self.last_attention = layer_outputs[1]
 
             hidden_states = layer_outputs[0]
 

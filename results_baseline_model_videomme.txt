@@ -1,6 +1,6 @@
 video-mme
-                                	                                    overall          short           medium           long
-                               		                                    w/o    w        w/o     w       w/o     w       w/o      w
+                                	                                    overall          short              medium                 long
+                               		                                    w/o    w        w/o     w           w/o     w          w/o      w
 original                      		                                47.9   50.3    56.0   59.4     45.4    47.6    42.1    43.8
 ours                          		                                48.0   50.2    56.1    59.4     45.8    47.4    42.1    43.8
 ------------------------------------------------------------------------------------------------
@@ -9,5 +9,15 @@ ours with frame selection pool -2	            45.1   52.4     52.1    59.7	   43
 ------------------------------------------------------------------------------------------------
 ours with qformer           		                        46.6   52.9    52.0    58.8     46.4    53.0    41.3    46.8
 ------------------------------------------------------------------------------------------------
-ours with token merging in layer 26 and  48.0   50.4    56.1    59.6	    45.4	47.8	42.3    44.0
+ours with token merging in layer 28 and  48.0   50.4    56.1    59.6	    45.4	47.8	42.3    44.0
+ratio 2, merging only multimodal tokens
+ours with token merging in layer 3 and    42.1   44.1    48.2    53.0	    40.8	42.3	37.2    37.1
+ratio 2, merging only multimodal tokens
+ours with token merging in layer 3 and    45.6   48.4    52.9    57.2	    44.4	45.9	39.4    42.1
+ratio 4, merging only multimodal tokens
+ours with token merging in layer 16 and   47.6  49.9    56.2   58.9	    44.9	47.2	41.6    43.4
+ratio 2, merging only multimodal tokens
+ours with token merging in layer 16 and   47.7  50 .0    56.6   59.2	    44.3	47.4	42.2    43.3
+ratio 4, merging only multimodal tokens
+ours with token merging in layer 8 and    46.4   49.2    55.7   58.4	    44.0	47.4	39.4    41.8
 ratio 2, merging only multimodal tokens

@@ -209,7 +209,7 @@ def random_bipartite_soft_matching(
 
 
 def merge_wavg(
-    merge: Callable, x: torch.Tensor,  pad_token=None, size: torch.Tensor = None
+    merge: Callable, x: torch.Tensor,  pad_token=None, original_size=None, size: torch.Tensor = None
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Applies the merge function by taking a weighted average based on token size.
@@ -217,12 +217,12 @@ def merge_wavg(
     """
     if size is None:
         size = torch.ones_like(x[..., 0, None])
-    original_size = x.shape[1]
     x = merge(x * size, mode="sum")
     after_size = x.shape[1]
     size = merge(size, mode="sum")
     x = x / size
-    x = F.pad(x, (0, 0, pad_token , original_size - x.size(1)))
+    if original_size is not None and pad_token is not None:
+        x = F.pad(x, (0, 0, pad_token , original_size - x.size(1)))
     return x, after_size
 
 def merge_source(

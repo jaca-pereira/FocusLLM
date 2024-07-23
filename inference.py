@@ -30,9 +30,11 @@ def inference():
     tokenizer, model, processor, context_len = load_pretrained_model(model_path, None, model_name)
     model = model.to('cuda:0')
     model.get_model().config.pad_token = tokenizer.pad_token_id
-    model.get_model().config.ratio = 2  # max 2
+    model.get_model().config.ratio = 2
+    model.get_model().config.merge_layer = 16
+    model.get_model().config.token_merging = True
     #model.get_model().config.merge_layer = 27 #para replicar os links, foi feito com o merge nos tokens todos, agr o merge esta so nos de texto
-    model.get_model().config.merge_layer = 26  #TEORIA: DEVIAMOS LIMITAR O MERGE PARA APENAS OS TOKENS QUE NÃO SÃO RELEVANTES PARA NXTP DO PRIMEIRO TOKEN
+    #TEORIA: DEVIAMOS LIMITAR O MERGE PARA APENAS OS TOKENS QUE NÃO SÃO RELEVANTES PARA NXTP DO PRIMEIRO TOKEN
     conv_mode = 'llama_2'
 
     # 2. Visual preprocess (load & transform image or video).
