@@ -20,8 +20,9 @@ import torch
 import torch.nn as nn
 
 from transformers import AutoConfig, AutoModelForCausalLM, \
-    MistralConfig, MistralModel, MistralForCausalLM
+    MistralConfig, MistralForCausalLM  # ,MistralModel, MistralForCausalLM
 
+from .FocusLLM import FocusLLMModel
 from transformers.modeling_outputs import CausalLMOutputWithPast, BaseModelOutputWithPast
 from transformers.generation.utils import GenerateOutput
 
@@ -32,7 +33,7 @@ class Videollama2MistralConfig(MistralConfig):
     model_type = "videollama2_mistral"
 
 
-class Videollama2MistralModel(Videollama2MetaModel, MistralModel):
+class Videollama2MistralModel(Videollama2MetaModel, FocusLLMModel):
     config_class = Videollama2MistralConfig
 
     def __init__(self, config: MistralConfig):

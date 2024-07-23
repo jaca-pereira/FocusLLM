@@ -669,6 +669,9 @@ def visualize_attention_vectors(attentions, output_ids, tokenizer, modal_token_p
     #clip the attention values
     attention_vector = [torch.cat(attention, 0).mean(dim=(0, 1)).cpu().detach().numpy() for attention in attentions]
     attention_vector = [np.clip(attention, min_attention, max_attention) for attention in attention_vector]
+    # save the attention vectors
+    attention_vector_only_input = np.array([attention[0, :end_input] for attention in attention_vector[1:]])
+    pickle.dump(attention_vector_only_input, open(f'./figures/{filename}/attention_vectors/{video_path}/{prompt}/attention_vector.pkl', 'wb'))
     for idx, attention in enumerate(tqdm(attention_vector)):
         fig, ax = plt.subplots(figsize=(20, 5))
         # Add vertical dashed lines to delimit the segments
@@ -704,18 +707,23 @@ def visualize_attention_vectors(attentions, output_ids, tokenizer, modal_token_p
         plt.close()
 
 
-def compare_distributions(data, bins=50):
+def compare_distributions(data, bins=50, hidden_states_or_attention='hidden_states'):
     num_data = len(data)
     results = {}
     os.makedirs('./figures', exist_ok=True)
-    os.makedirs(f'./figures/distribution_comparison', exist_ok=True)
+    if hidden_states_or_attention == 'hidden_states':
+        os.makedirs(f'./figures/distribution_comparison', exist_ok=True)
+    else:
+        os.makedirs(f'./figures/distribution_comparison/attention_vectors', exist_ok=True)
     for (i, j) in itertools.combinations(range(num_data), 2):
         data1 = data[i]
         data2 = data[j]
-        prompt1 = data1.prompt
-        prompt2 = data2.prompt
-        video1 = data1.video
-        video2 = data2.video
+        prompt1 = data1['prompt']
+        prompt2 = data2['prompt']
+        video1 = data1['video']
+        video2 = data2['video']
+        data1 = data1['data']
+        data2 = data2['data']
         # 1. Histogram Comparison
         plt.figure(figsize=(12, 6))
         plt.hist(data1, bins=bins, alpha=0.5, label=f'Video {video1}')
@@ -724,16 +732,15 @@ def compare_distributions(data, bins=50):
         plt.xlabel('Cosine Similarity')
         plt.ylabel('Frequency')
         plt.legend(loc='upper right')
-        plt.savefig(f'./figures/distribution_comparison/histogram_comparison_{video1}_{prompt1}_vs_{video2}_{prompt2}.png')
+        if hidden_states_or_attention == 'hidden_states':
+            plt.savefig(f'./figures/distribution_comparison/histogram_comparison_{video1}_{prompt1}_vs_{video2}_{prompt2}.png')
+        else:
+            plt.savefig(f'./figures/distribution_comparison/attention_vectors/histogram_comparison_{video1}_{prompt1}_vs_{video2}_{prompt2}.png')
         plt.close()
 
         # 2. Kolmogorov-Smirnov Test
         ks_stat, ks_p_value = ks_2samp(data1, data2)
         print(f"Kolmogorov-Smirnov Test: Video {video1}, Prompt {prompt1} vs Video {video2}, Prompt {prompt2}: Statistic={ks_stat}, p-value={ks_p_value}")
-
-        # 3. Earth Mover's Distance
-        emd = np.sum(np.abs(np.sort(data1) - np.sort(data2)))
-        print(f"Earth Mover's Distance: Video {video1}, Prompt {prompt1} vs Video {video2}, Prompt {prompt2}: {emd}")
 
         # 4. KL Divergence
         # Create histogram-based probability distributions
@@ -742,10 +749,14 @@ def compare_distributions(data, bins=50):
         kl_divergence = entropy(hist1 + 1e-10, hist2 + 1e-10)  # Adding small value to avoid division by zero
         print(f"KL Divergence: Video {video1}, Prompt {prompt1} vs Video {video2}, Prompt {prompt2}: {kl_divergence}")
 
-        with open(f'./figures/distribution_comparison/{video1}_{prompt1}_vs_{video2}_{prompt2}.txt', 'w') as f:
-            f.write(f"Kolmogorov-Smirnov Test: Statistic={ks_stat}, p-value={ks_p_value}\n")
-            f.write(f"Earth Mover's Distance: {emd}\n")
-            f.write(f"KL Divergence: {kl_divergence}\n")
+        if hidden_states_or_attention == 'hidden_states':
+            with open(f'./figures/distribution_comparison/{video1}_{prompt1}_vs_{video2}_{prompt2}.txt', 'w') as f:
+                f.write(f"Kolmogorov-Smirnov Test: Statistic={ks_stat}, p-value={ks_p_value}\n")
+                f.write(f"KL Divergence: {kl_divergence}\n")
+        else:
+            with open(f'./figures/distribution_comparison/attention_vectors/{video1}_{prompt1}_vs_{video2}_{prompt2}.txt', 'w') as f:
+                f.write(f"Kolmogorov-Smirnov Test: Statistic={ks_stat}, p-value={ks_p_value}\n")
+                f.write(f"KL Divergence: {kl_divergence}\n")
 
         # 5. Cumulative Distribution Function (CDF) Plot
         cdf1 = np.cumsum(hist1 * np.diff(bin_edges1))
@@ -758,5 +769,8 @@ def compare_distributions(data, bins=50):
         plt.xlabel('Cosine Similarity')
         plt.ylabel('Cumulative Probability')
         plt.legend(loc='upper left')
-        plt.savefig(f'./figures/distribution_comparison/cdf_comparison_{video1}_{prompt1}_vs_{video2}_{prompt2}.png')
+        if hidden_states_or_attention == 'hidden_states':
+            plt.savefig(f'./figures/distribution_comparison/cdf_comparison_{video1}_{prompt1}_vs_{video2}_{prompt2}.png')
+        else:
+            plt.savefig(f'./figures/distribution_comparison/attention_vectors/cdf_comparison_{video1}_{prompt1}_vs_{video2}_{prompt2}.png')
         plt.close()

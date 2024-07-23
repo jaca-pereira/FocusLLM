@@ -15,9 +15,10 @@ from videollama2.model.builder import load_pretrained_model
 def inference():
     # Video Inference
     paths = ['assets/RoadAccidents127_x264.mp4']
-    #questions = ['Summarize the events in the video and name the main animals that appear.']
-    #questions = ['Summarize the events in the video and name the main objects that appear.']
-    questions = ['What is your opinion on the goal scored by Cristiano Ronaldo?']
+    #questions = ['Summarize the events in the video and name the main animals that appear.'] #para replicar o link
+    #questions = ['Summarize the events in the video and name the main objects that appear.'] #QUANDO PEDIMOS OBJETOS ELE COMPORTA-SE DE FORMA ESTRANHA. Ou ent quando é a dividir por 4  e a mask nao fica bem setup ele começa a dar links
+    questions = ['Describe the video.']
+    #questions = ['What is your opinion on the goal scored by Cristiano Ronaldo?']
     modal_list = ['video']
     #modal_list = ['image']
 
@@ -28,7 +29,10 @@ def inference():
     model_name = get_model_name_from_path(model_path)
     tokenizer, model, processor, context_len = load_pretrained_model(model_path, None, model_name)
     model = model.to('cuda:0')
-   
+    model.get_model().config.pad_token = tokenizer.pad_token_id
+    model.get_model().config.ratio = 4  # max 2
+    #model.get_model().config.merge_layer = 27 #para replicar os links
+    model.get_model().config.merge_layer = 31  #TEORIA: DEVIAMOS LIMITAR O MERE PARA APENAS OS TOKENS QUE NÃO SÃO RELEVANTES PARA NXTP DO PRIMEIRO TOKEN
     conv_mode = 'llama_2'
 
     # 2. Visual preprocess (load & transform image or video).
@@ -65,15 +69,15 @@ def inference():
         )
     modal_token_position = (input_ids == modal_token_index).nonzero()[0, 1].item()
     output_ids = outputs.sequences
-    attentions = outputs.attentions
+    """attentions = outputs.attentions
     hidden_states = outputs.hidden_states
     prompt = questions[0].split(" ")[0]
     video_path = paths[0].split('/')[-1].removesuffix('.mp4')
     filename = "mistral"
-    visualize_hidden_states(hidden_states, modal_token_position, model.model.image_video_tokens, filename, video_path, prompt)
-    visualize_hidden_states_distribution(hidden_states, filename, video_path, prompt)
-    visualize_average_attention(attentions, modal_token_position, model.model.image_video_tokens, filename, video_path, prompt)
-    visualize_attention_vectors(attentions, output_ids, tokenizer, modal_token_position, model.model.image_video_tokens, filename, video_path, prompt)
+    #visualize_hidden_states(hidden_states, modal_token_position, model.model.image_video_tokens, filename, video_path, prompt)
+    #visualize_hidden_states_distribution(hidden_states, filename, video_path, prompt)
+    #visualize_average_attention(attentions, modal_token_position, model.model.image_video_tokens, filename, video_path, prompt)
+    visualize_attention_vectors(attentions, output_ids, tokenizer, modal_token_position, model.model.image_video_tokens, filename, video_path, prompt)"""
     response = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
     print(response[0])
 

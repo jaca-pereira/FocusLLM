@@ -29,7 +29,7 @@ Whiskers enjoyed playing, playing with his toys, his toys as a cat. Whiskers enj
 Whiskers also loved to watch birds, watch birds from the window, the window where he napped. Whiskers also loved to watch birds, watch birds from the window, the window where he napped. Whiskers also loved to watch birds, watch birds from the window, the window where he napped. Whiskers would sit and watch, sit and watch the birds, the birds outside. Whiskers would sit and watch, sit and watch the birds, the birds outside. Whiskers would sit and watch, sit and watch the birds, the birds outside. Whiskers dreamed of catching birds, dreamed like a cat dreams. Whiskers dreamed of catching birds, dreamed like a cat dreams. Whiskers dreamed of catching birds, dreamed like a cat dreams. Whiskers' whiskers would twitch, his whiskers would twitch as he watched the birds. Whiskers' whiskers would twitch, his whiskers would twitch as he watched the birds. Whiskers' whiskers would twitch, his whiskers would twitch as he watched the birds.
 """
 
-prompt = f"""Summarize the following text: 
+prompt = f"""Summarize the following text
 ====================
 {input_text}
 ====================
@@ -57,7 +57,7 @@ generated_text = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
 print(f"Generated Text: {generated_text}")
 
 # Plot the attention scores
-visualize_hidden_states(hidden_states,-1, len(generated_ids[0]), model_name, "whiskers", "Summarize")
-visualize_hidden_states_distribution(hidden_states, model_name, "whiskers", "Summarize")
-visualize_average_attention(attentions, -1, len(input_ids[0]), model_name, "whiskers", "Summarize")
-visualize_attention_vectors(attentions, generated_ids, tokenizer, -1, len(input_ids[0]), model_name, "whiskers", "Summarize")
+#visualize_hidden_states(hidden_states,-1, len(generated_ids[0]), model_name, "whiskers", "Summarize")
+#visualize_hidden_states_distribution(hidden_states, model_name, "whiskers", "Summarize")
+#visualize_average_attention(attentions, -1, len(input_ids[0]), model_name, "whiskers", "Summarize")
+visualize_attention_vectors(attentions, generated_ids, tokenizer, -1, len(input_ids[0]), model_name, "whiskers", "What")
