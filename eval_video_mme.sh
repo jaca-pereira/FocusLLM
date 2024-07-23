@@ -2,10 +2,10 @@
 
 eval "$(conda shell.bash hook)"
 
-conda activate videollama2
+conda activate focus
 
 echo $CONDA_DEFAULT_ENV
 
-cd ~/data/VideoLLaMA2
+cd ~/data/FocusLLM
 
-CUDA_VISIBLE_DEVICES=0,1 bash scripts/eval/eval_video_mcqa_videomme.sh
+CUDA_VISIBLE_DEVICES=0,1,2,3 bash scripts/eval/eval_video_mcqa_videomme.sh

@@ -13,7 +13,6 @@ logger = logging.get_logger(__name__)
 
 class FocusLLMModel(MistralModel):
     def __init__(self, config: MistralConfig):
-        self.last_attention = None
         super().__init__(config)
     def forward(
             self,
@@ -128,11 +127,16 @@ class FocusLLMModel(MistralModel):
             else:
 
                 if decoder_layer.self_attn.layer_idx == self.config.merge_layer and seq_length > 1:
-                    merge, _ = bipartite_soft_matching(hidden_states, r= seq_length // self.config.ratio)
+
+                    hidden_states_image_or_video = hidden_states[:, self.modal_token_index[0]:self.image_video_tokens]
+                    ratio = len(hidden_states_image_or_video[0]) // self.config.ratio
+                    merge, _ = bipartite_soft_matching(hidden_states_image_or_video, r= ratio)
+                    hidden_states_image_or_video, after_size = merge_wavg(merge, hidden_states_image_or_video, self.config.pad_token)
+                    hidden_states = torch.cat((hidden_states[:, :self.modal_token_index[0]], hidden_states_image_or_video, hidden_states[:, self.image_video_tokens:]), dim=1)
                     if attention_mask is not None:
-                        hidden_states, attention_mask = merge_wavg(merge, hidden_states, attention_mask, self.config.pad_token)
-                    else:
-                        hidden_states = merge_wavg(merge, hidden_states)
+                        attention_mask[..., (self.modal_token_index[0] + after_size):self.image_video_tokens, :] = attention_mask[0, 0, 0, -1].item()
+                        attention_mask[..., (self.modal_token_index[0] + after_size):self.image_video_tokens] = attention_mask[0, 0, 0, -1].item()
+
                 layer_outputs = decoder_layer(
                     hidden_states,
                     attention_mask=attention_mask,
@@ -141,7 +145,6 @@ class FocusLLMModel(MistralModel):
                     output_attentions=output_attentions,
                     use_cache=use_cache,
                 )
-                self.last_attention = layer_outputs[1]
 
             hidden_states = layer_outputs[0]
 

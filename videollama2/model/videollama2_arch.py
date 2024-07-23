@@ -167,6 +167,7 @@ class Videollama2MetaForCausalLM(ABC):
 
         Xs, keys = X_modalities
         X_features = self.encode_images_or_videos(Xs, keys)
+        self.get_model().modal_token_index = [(input_id == MMODAL_TOKEN_INDEX[key.upper()]).nonzero()[0] for key, input_id in zip(keys, input_ids)]
         self.get_model().image_video_tokens = X_features.shape[1]
         new_input_embeds = []
         new_labels = [] if labels is not None else None

@@ -61,3 +61,6 @@ public_models/
 /output
 sdebug
 test_debug.py
+
+pyproject.toml
+requirements.txt
