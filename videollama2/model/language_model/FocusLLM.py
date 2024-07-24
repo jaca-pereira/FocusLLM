@@ -1,4 +1,5 @@
 import torch
+from einops import einops
 from transformers import MistralModel, MistralConfig, DynamicCache, Cache
 from typing import Optional, Union, Tuple, List
 
@@ -41,6 +42,10 @@ class FocusLLMModel(MistralModel):
             raise ValueError("You cannot specify both decoder_input_ids and decoder_inputs_embeds at the same time")
         elif input_ids is not None:
             batch_size, seq_length = input_ids.shape
+            if self.config.focus_llm and seq_length == 1:
+                batch_size, seq_length = 1, 1
+                input_ids = input_ids[0].unsqueeze(0)
+                attention_mask = attention_mask[0].unsqueeze(0)
         elif inputs_embeds is not None:
             batch_size, seq_length, _ = inputs_embeds.shape
         else:
@@ -128,27 +133,54 @@ class FocusLLMModel(MistralModel):
                 )
             else:
                 if self.config.token_merging and decoder_layer.self_attn.layer_idx == self.config.merge_layer and seq_length > 1:
-                    hidden_states_image_or_video = hidden_states[:, self.modal_token_index[0]:(self.modal_token_index[0] + self.image_video_tokens)]
+                    hidden_states_image_or_video = hidden_states[:, self.modal_token_index[0]:(
+                                self.modal_token_index[0] + self.image_video_tokens)]
                     original_size = len(hidden_states_image_or_video[0])
                     ratio = len(hidden_states_image_or_video[0]) // self.config.ratio
-                    merge, _ = bipartite_soft_matching(hidden_states_image_or_video, r= ratio)
-                    hidden_states_image_or_video, after_size = merge_wavg(merge, hidden_states_image_or_video, self.config.pad_token)
-                    ratio = len(hidden_states_image_or_video[0]) // (self.config.ratio*2)
                     merge, _ = bipartite_soft_matching(hidden_states_image_or_video, r=ratio)
-                    hidden_states_image_or_video, after_size = merge_wavg(merge, hidden_states_image_or_video, self.config.pad_token, original_size=original_size)
-                    hidden_states = torch.cat((hidden_states[:, :self.modal_token_index[0].item()], hidden_states_image_or_video, hidden_states[:, (self.modal_token_index[0] + self.image_video_tokens):]), dim=1)
+                    hidden_states_image_or_video, after_size = merge_wavg(merge, hidden_states_image_or_video,
+                                                                          self.config.pad_token)
+                    ratio = len(hidden_states_image_or_video[0]) // (self.config.ratio * 2)
+                    merge, _ = bipartite_soft_matching(hidden_states_image_or_video, r=ratio)
+                    hidden_states_image_or_video, after_size = merge_wavg(merge, hidden_states_image_or_video,
+                                                                          self.config.pad_token,
+                                                                          original_size=original_size)
+                    hidden_states = torch.cat((hidden_states[:, :self.modal_token_index[0].item()],
+                                               hidden_states_image_or_video, hidden_states[:, (self.modal_token_index[
+                                                                                                   0] + self.image_video_tokens):]),
+                                              dim=1)
                     if attention_mask is not None:
-                        attention_mask[..., (self.modal_token_index[0].item() + after_size):(self.modal_token_index[0] + self.image_video_tokens), :] = attention_mask[0, 0, 0, -1].item()
-                        attention_mask[..., (self.modal_token_index[0].item() + after_size):(self.modal_token_index[0] + self.image_video_tokens)] = attention_mask[0, 0, 0, -1].item()
+                        attention_mask[..., (self.modal_token_index[0].item() + after_size):(
+                                    self.modal_token_index[0] + self.image_video_tokens), :] = attention_mask[
+                            0, 0, 0, -1].item()
+                        attention_mask[..., (self.modal_token_index[0].item() + after_size):(
+                                    self.modal_token_index[0] + self.image_video_tokens)] = attention_mask[
+                            0, 0, 0, -1].item()
                 elif not self.config.token_merging and decoder_layer.self_attn.layer_idx == self.config.merge_layer and seq_length > 1:
-                        image_attention_score = self.last_attention.mean(dim=1)[0][-1][self.modal_token_index[0]:(self.modal_token_index[0] + self.image_video_tokens)]
-                        ratio = int(self.image_video_tokens * self.config.ratio)
-                        bottom_attention_rank_index = image_attention_score.topk(ratio, largest=False).indices + self.modal_token_index[0]
-                        bottom_attention_rank_index = bottom_attention_rank_index.sort().values
-                        hidden_states[..., bottom_attention_rank_index, :] = self.config.pad_token
-                        if attention_mask is not None:
-                            attention_mask[..., bottom_attention_rank_index, :] = attention_mask[0, 0, 0, -1].item()
-                            attention_mask[..., bottom_attention_rank_index] = attention_mask[0, 0, 0, -1].item()
+                    image_attention_score = self.last_attention.mean(dim=1)[:, -1, self.modal_token_index:(self.modal_token_index + self.image_video_tokens)]
+                    image_attention_score = image_attention_score.flatten()
+                    image_attention_score = image_attention_score / image_attention_score.norm(dim=0, keepdim=True)
+                    top_attention_rank_index = torch.argsort(image_attention_score, dim=0, descending=True)
+                    top_attention_rank_index = top_attention_rank_index[:self.image_video_tokens] # get top k tokens that make the same number of tokens as the original length
+                    hidden_states_image_or_video = hidden_states[:, self.modal_token_index:(self.modal_token_index + self.image_video_tokens)]
+                    hidden_states_image_or_video = einops.rearrange(hidden_states_image_or_video, '(b s) l d -> b (s l) d', b=1)
+                    hidden_states_image_or_video = hidden_states_image_or_video[:, top_attention_rank_index, :]
+                    hidden_states = torch.cat((hidden_states[..., :self.modal_token_index, :].mean(0).unsqueeze(0), hidden_states_image_or_video, hidden_states[..., (self.modal_token_index + self.image_video_tokens):, :].mean(0).unsqueeze(0)), dim=1)
+                    position_ids = position_ids[0].unsqueeze(0)
+                    if attention_mask is not None:
+                        attention_mask = attention_mask[0].unsqueeze(0)
+
+                    for i, (key_cache, value_cache) in enumerate(zip(past_key_values.key_cache, past_key_values.value_cache)): #TODO can this be turned into matrix operations?
+                        key_cache_image_or_video = key_cache[..., self.modal_token_index:(self.modal_token_index + self.image_video_tokens), :]
+                        value_cache_image_or_video = value_cache[..., self.modal_token_index:(self.modal_token_index + self.image_video_tokens), :]
+                        key_cache_image_or_video = einops.rearrange(key_cache_image_or_video, '(b s) k l d -> b k (s l) d', b=1)
+                        value_cache_image_or_video = einops.rearrange(value_cache_image_or_video, '(b s) v l d -> b v (s l) d', b=1)
+                        key_cache_image_or_video = key_cache_image_or_video[..., top_attention_rank_index, :]
+                        value_cache_image_or_video = value_cache_image_or_video[..., top_attention_rank_index, :]
+                        key_cache = torch.cat((key_cache[..., :self.modal_token_index, :].mean(0).unsqueeze(0), key_cache_image_or_video, key_cache[..., (self.modal_token_index + self.image_video_tokens):, :].mean(0).unsqueeze(0)), dim=2)
+                        value_cache = torch.cat((value_cache[..., :self.modal_token_index, :].mean(0).unsqueeze(0), value_cache_image_or_video, value_cache[..., (self.modal_token_index + self.image_video_tokens):, :].mean(0).unsqueeze(0)), dim=2)
+                        past_key_values.key_cache[i] = key_cache
+                        past_key_values.value_cache[i] = value_cache
 
                 layer_outputs = decoder_layer(
                     hidden_states,

@@ -20,9 +20,11 @@ def model_init(model_path=None):
 
     # ADD NEW CONFIG OPTIONS
     model.get_model().config.pad_token = tokenizer.pad_token_id
-    model.get_model().config.ratio = 2
-    model.get_model().config.merge_layer = 16
-    model.get_model().config.token_merging = True
+    model.get_model().config.ratio = 0.7
+    model.get_model().config.merge_layer = 3
+    model.get_model().config.token_merging = False
+    model.get_model().config.focus_llm = True
+    model.get_model().config.segment_length = 8
 
 
     num_frames = model.config.num_frames if hasattr(model.config, "num_frames") else NUM_FRAMES
@@ -89,6 +91,7 @@ def infer(model, video, instruct, tokenizer, do_sample=False, version='llama_2')
             use_cache=True,
             stopping_criteria=[stopping_criteria],
             pad_token_id=tokenizer.eos_token_id,
+            output_attentions=True,
         )
 
     outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()

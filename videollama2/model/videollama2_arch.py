@@ -127,7 +127,8 @@ class Videollama2MetaForCausalLM(ABC):
         frames = einops.rearrange(videos, 'b t c h w -> (b t) c h w')
         frames_features = self.get_model().get_vision_tower()(frames)
         frames_features = einops.rearrange(frames_features, '(b t) n h -> b t n h', b = batch_size)
-
+        if self.get_model().config.focus_llm:
+            frames_features = einops.rearrange(frames_features, 'b (s l) n h -> (b s) l n h', l=self.get_model().config.segment_length) # s = number of segments, l = segment length
         return self.temporal_aggregator(frames_features)
 
     def temporal_aggregator(self, frames_features):
@@ -167,11 +168,19 @@ class Videollama2MetaForCausalLM(ABC):
 
         Xs, keys = X_modalities
         X_features = self.encode_images_or_videos(Xs, keys)
-        self.get_model().modal_token_index = [(input_id == MMODAL_TOKEN_INDEX[key.upper()]).nonzero()[0] for key, input_id in zip(keys, input_ids)]
+        self.get_model().modal_token_index = (input_ids[0] == MMODAL_TOKEN_INDEX[keys[0].upper()]).nonzero().item()
         self.get_model().image_video_tokens = X_features.shape[1]
         new_input_embeds = []
         new_labels = [] if labels is not None else None
         cur_X_idx = 0
+
+        if self.get_model().config.focus_llm:
+            input_ids = input_ids.repeat_interleave(X_features.shape[0]//input_ids.shape[0], dim=0)
+            if attention_mask is not None:
+                attention_mask = attention_mask.repeat_interleave(X_features.shape[0]//input_ids.shape[0], dim=0)
+            if labels is not None:
+                labels = labels.repeat_interleave(X_features.shape[0]//input_ids.shape[0], dim=0)
+
         # replace image/video/audio tokens with pre-computed embeddings
         for batch_idx, cur_input_ids in enumerate(input_ids):
             # cur_X_features = X_features[batch_idx]
