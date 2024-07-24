@@ -264,6 +264,7 @@ class Videollama2MetaForCausalLM(ABC):
                 new_labels  = torch.stack(new_labels, dim=0)
 
             if attention_mask is not None:
+                attention_mask = attention_mask.repeat_interleave(new_input_embeds.shape[0]//attention_mask.shape[0], dim=0)
                 new_attn_mask_pad_left = torch.full((attention_mask.shape[0], new_input_embeds.shape[1] - input_ids.shape[1]), True, dtype=attention_mask.dtype, device=attention_mask.device)
                 attention_mask = torch.cat((new_attn_mask_pad_left, attention_mask), dim=1)
                 assert attention_mask.shape == new_input_embeds.shape[:2]

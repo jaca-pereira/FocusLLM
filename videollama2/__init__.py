@@ -39,7 +39,7 @@ def model_init(model_path=None):
         # mistral/mixtral/llama2
         version = 'llama_2'
 
-    return model, partial(process_video, aspect_ratio=None, processor=processor, num_frames=num_frames), tokenizer, version
+    return model, partial(process_video, aspect_ratio=None, processor=processor, num_frames=num_frames, sample_scheme="fps"), tokenizer, version
 
 
 def infer(model, video, instruct, tokenizer, do_sample=False, version='llama_2'):
@@ -92,6 +92,7 @@ def infer(model, video, instruct, tokenizer, do_sample=False, version='llama_2')
             stopping_criteria=[stopping_criteria],
             pad_token_id=tokenizer.eos_token_id,
             output_attentions=True,
+            output_hidden_states=True,
         )
 
     outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()

@@ -57,10 +57,11 @@ def inference():
     conv.append_message(conv.roles[1], None)
     prompt = conv.get_prompt()
     input_ids = tokenizer_MMODAL_token(prompt, tokenizer, modal_token_index, return_tensors='pt').unsqueeze(0).to('cuda:0')
-
+    attention_masks = input_ids.ne(tokenizer.pad_token_id).long().cuda()
     with torch.inference_mode():
         outputs = model.generate(
             input_ids,
+            attention_mask=attention_masks,
             images_or_videos=tensor,
             modal_list=modal_list,
             do_sample=True,
