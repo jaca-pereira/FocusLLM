@@ -435,9 +435,9 @@ def process_video(video_path, processor, aspect_ratio='pad', num_frames=NUM_FRAM
             # limit the max input frames
             if len(frame_id_list) > MAX_FRAMES:
                 frame_id_list = np.linspace(0, duration-1, MAX_FRAMES, dtype=int)
-            #if len(frame_id_list) % num_frames != 0:
+            if len(frame_id_list) % num_frames != 0:
                 # transform the frame_id_list to be multiple of segment length
-            #    frame_id_list = frame_id_list[:-(len(frame_id_list) % num_frames)]
+                frame_id_list = frame_id_list[:-(len(frame_id_list) % num_frames)]
 
             try:
                 video_data = decord_vr.get_batch(frame_id_list).numpy()

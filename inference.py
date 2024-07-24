@@ -23,7 +23,7 @@ def inference():
     #modal_list = ['image']
 
     # 1. Initialize the model.
-    model_path = 'DAMO-NLP-SG/VideoLLaMA2-7B'
+    model_path = 'DAMO-NLP-SG/VideoLLaMA2-7B-16F'
     # Base model inference (only need to replace model_path)
     # model_path = 'DAMO-NLP-SG/VideoLLaMA2-7B-Base'
     model_name = get_model_name_from_path(model_path)
