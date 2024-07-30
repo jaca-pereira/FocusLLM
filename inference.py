@@ -14,7 +14,7 @@ from videollama2.model.builder import load_pretrained_model
 
 def inference():
     # Video Inference
-    paths = ['assets/RoadAccidents127_x264.mp4']
+    paths = ['assets/cat_and_chicken.mp4']
     #questions = ['Summarize the events in the video and name the main animals that appear.'] #para replicar o link
     #questions = ['Summarize the events in the video and name the main objects that appear.'] #QUANDO PEDIMOS OBJETOS ELE COMPORTA-SE DE FORMA ESTRANHA. Ou ent quando é a dividir por 4  e a mask nao fica bem setup ele começa a dar links
     questions = ['Describe the video.']
@@ -32,7 +32,8 @@ def inference():
     model.get_model().config.pad_token = tokenizer.pad_token_id
     model.get_model().config.ratio = 0.5
     model.get_model().config.focus_layer = 3
-    model.get_model().config.focus_llm = True
+    model.get_model().config.focus_llm = False
+    model.get_model().config.posi_id = False
     # model.get_model().config.segment_length = 8
     #model.get_model().config.merge_layer = 27 #para replicar os links, foi feito com o merge nos tokens todos, agr o merge esta so nos de texto
     #TEORIA: DEVIAMOS LIMITAR O MERGE PARA APENAS OS TOKENS QUE NÃO SÃO RELEVANTES PARA NXTP DO PRIMEIRO TOKEN
@@ -40,7 +41,7 @@ def inference():
 
     # 2. Visual preprocess (load & transform image or video).
     if modal_list[0] == 'video':
-        tensor = process_video(paths[0], processor, model.config.image_aspect_ratio, num_frames= model.get_model().config.segment_length, sample_scheme="fps").to(dtype=torch.float16, device='cuda', non_blocking=True)
+        tensor = process_video(paths[0], processor, model.config.image_aspect_ratio, sample_scheme="uniform").to(dtype=torch.float16, device='cuda', non_blocking=True)
         default_mm_token = DEFAULT_MMODAL_TOKEN["VIDEO"]
         modal_token_index = MMODAL_TOKEN_INDEX["VIDEO"]
     else:

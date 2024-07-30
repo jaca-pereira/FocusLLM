@@ -74,7 +74,7 @@ class FocusLLMModel(MistralModel):
         if not self.config.posi_id and seq_length > 1:
             print(f"position_ids before: {position_ids[0][self.modal_token_index: self.modal_token_index + self.image_video_tokens]}")
             shape_full = (position_ids.shape[0], self.image_video_tokens)
-            position_ids = torch.cat((position_ids[..., :self.modal_token_index], torch.full(shape_full, position_ids[0, self.modal_token_index+1]).to(position_ids.device), (position_ids[..., (self.modal_token_index+self.image_video_tokens):] - self.modal_token_index + 1)), dim=-1)
+            position_ids = torch.cat((position_ids[..., :self.modal_token_index], torch.full(shape_full, position_ids[0, self.modal_token_index+1]).to(position_ids.device), (position_ids[..., (self.modal_token_index+self.image_video_tokens):] - self.image_video_tokens+2)), dim=-1)
             print(f"position_ids after: {position_ids[0][self.modal_token_index: self.modal_token_index + self.image_video_tokens]}")
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
