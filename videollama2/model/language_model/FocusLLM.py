@@ -2,12 +2,12 @@ import torch
 from einops import einops
 from transformers import MistralModel, MistralConfig, DynamicCache, Cache
 from typing import Optional, Union, Tuple, List
-
+import copy
 from transformers.modeling_attn_mask_utils import _prepare_4d_causal_attention_mask_for_sdpa, \
     _prepare_4d_causal_attention_mask
 from transformers.utils import logging
 from transformers.modeling_outputs import BaseModelOutputWithPast
-
+import torch.nn.functional as F
 from videollama2.model.language_model.ToMe import bipartite_soft_matching, merge_wavg
 
 logger = logging.get_logger(__name__)
@@ -42,10 +42,6 @@ class FocusLLMModel(MistralModel):
             raise ValueError("You cannot specify both decoder_input_ids and decoder_inputs_embeds at the same time")
         elif input_ids is not None:
             batch_size, seq_length = input_ids.shape
-            if self.config.focus_llm and seq_length == 1:
-                batch_size, seq_length = 1, 1
-                input_ids = input_ids[0].unsqueeze(0)
-                attention_mask = attention_mask[0].unsqueeze(0)
         elif inputs_embeds is not None:
             batch_size, seq_length, _ = inputs_embeds.shape
         else:
@@ -75,6 +71,11 @@ class FocusLLMModel(MistralModel):
         else:
             position_ids = position_ids.view(-1, seq_length).long()
 
+        if not self.config.posi_id and seq_length > 1:
+            print(f"position_ids before: {position_ids[0][self.modal_token_index: self.modal_token_index + self.image_video_tokens]}")
+            shape_full = (position_ids.shape[0], self.image_video_tokens)
+            position_ids = torch.cat((position_ids[..., :self.modal_token_index], torch.full(shape_full, position_ids[0, self.modal_token_index+1]).to(position_ids.device), (position_ids[..., (self.modal_token_index+self.image_video_tokens):] - self.modal_token_index + 1)), dim=-1)
+            print(f"position_ids after: {position_ids[0][self.modal_token_index: self.modal_token_index + self.image_video_tokens]}")
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
@@ -86,7 +87,6 @@ class FocusLLMModel(MistralModel):
                     " this may lead to unexpected behaviour for Flash Attention version of Mistral. Make sure to "
                     " call `tokenizer.padding_side  = 'left'` before tokenizing the input. "
                 )
-
         if self._attn_implementation == "flash_attention_2":
             # 2d mask is passed through the layers
             attention_mask = attention_mask if (attention_mask is not None and 0 in attention_mask) else None
@@ -117,6 +117,39 @@ class FocusLLMModel(MistralModel):
         all_self_attns = () if output_attentions else None
         next_decoder_cache = None
 
+        ################ new forward pass loop for getting best idx ###########################
+        if self.config.focus_llm and seq_length > 1:
+            #deep copy past_key_values before forward pass
+            before_past_key_values = copy.deepcopy(past_key_values)
+            for decoder_layer in self.layers:
+                if decoder_layer.self_attn.layer_idx == self.config.focus_layer:
+                    image_attention_score = self.last_attention.mean(dim=1)[0][-1][self.modal_token_index:(self.modal_token_index + self.image_video_tokens)]
+                    ratio = int(self.image_video_tokens * self.config.ratio)
+                    bottom_attention_rank_index = image_attention_score.topk(ratio, largest=False).indices + \
+                                                  self.modal_token_index
+                    bottom_attention_rank_index = bottom_attention_rank_index.sort().values
+                    break
+
+                layer_outputs = decoder_layer(
+                    hidden_states,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                    past_key_value=past_key_values,
+                    output_attentions=output_attentions,
+                    use_cache=use_cache,
+                )
+
+                hidden_states = layer_outputs[0]
+
+                if decoder_layer.self_attn.layer_idx == self.config.focus_layer - 1:
+                    self.last_attention = layer_outputs[1]
+
+            attention_mask[..., bottom_attention_rank_index] = attention_mask[0, 0, 0, -1].item()
+            attention_mask[..., bottom_attention_rank_index, :] = attention_mask[0, 0, 0, -1].item()
+            hidden_states = inputs_embeds
+            past_key_values = before_past_key_values
+    ##########################################################################################
+
         for decoder_layer in self.layers:
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
@@ -132,56 +165,6 @@ class FocusLLMModel(MistralModel):
                     use_cache,
                 )
             else:
-                if self.config.token_merging and decoder_layer.self_attn.layer_idx == self.config.merge_layer and seq_length > 1:
-                    hidden_states_image_or_video = hidden_states[:, self.modal_token_index[0]:(
-                                self.modal_token_index[0] + self.image_video_tokens)]
-                    original_size = len(hidden_states_image_or_video[0])
-                    ratio = len(hidden_states_image_or_video[0]) // self.config.ratio
-                    merge, _ = bipartite_soft_matching(hidden_states_image_or_video, r=ratio)
-                    hidden_states_image_or_video, after_size = merge_wavg(merge, hidden_states_image_or_video,
-                                                                          self.config.pad_token)
-                    ratio = len(hidden_states_image_or_video[0]) // (self.config.ratio * 2)
-                    merge, _ = bipartite_soft_matching(hidden_states_image_or_video, r=ratio)
-                    hidden_states_image_or_video, after_size = merge_wavg(merge, hidden_states_image_or_video,
-                                                                          self.config.pad_token,
-                                                                          original_size=original_size)
-                    hidden_states = torch.cat((hidden_states[:, :self.modal_token_index[0].item()],
-                                               hidden_states_image_or_video, hidden_states[:, (self.modal_token_index[
-                                                                                                   0] + self.image_video_tokens):]),
-                                              dim=1)
-                    if attention_mask is not None:
-                        attention_mask[..., (self.modal_token_index[0].item() + after_size):(
-                                    self.modal_token_index[0] + self.image_video_tokens), :] = attention_mask[
-                            0, 0, 0, -1].item()
-                        attention_mask[..., (self.modal_token_index[0].item() + after_size):(
-                                    self.modal_token_index[0] + self.image_video_tokens)] = attention_mask[
-                            0, 0, 0, -1].item()
-                elif not self.config.token_merging and decoder_layer.self_attn.layer_idx == self.config.merge_layer and seq_length > 1:
-                    image_attention_score = self.last_attention.mean(dim=1)[:, -1, self.modal_token_index:(self.modal_token_index + self.image_video_tokens)]
-                    image_attention_score = image_attention_score.flatten()
-                    image_attention_score = image_attention_score / image_attention_score.norm(dim=0, keepdim=True)
-                    top_attention_rank_index = torch.argsort(image_attention_score, dim=0, descending=True)
-                    top_attention_rank_index = top_attention_rank_index[:self.image_video_tokens] # get top k tokens that make the same number of tokens as the original length
-                    hidden_states_image_or_video = hidden_states[:, self.modal_token_index:(self.modal_token_index + self.image_video_tokens)]
-                    hidden_states_image_or_video = einops.rearrange(hidden_states_image_or_video, '(b s) l d -> b (s l) d', b=1)
-                    hidden_states_image_or_video = hidden_states_image_or_video[:, top_attention_rank_index, :]
-                    hidden_states = torch.cat((hidden_states[..., :self.modal_token_index, :].mean(0).unsqueeze(0), hidden_states_image_or_video, hidden_states[..., (self.modal_token_index + self.image_video_tokens):, :].mean(0).unsqueeze(0)), dim=1)
-                    position_ids = position_ids[0].unsqueeze(0)
-                    if attention_mask is not None:
-                        attention_mask = attention_mask[0].unsqueeze(0)
-
-                    for i, (key_cache, value_cache) in enumerate(zip(past_key_values.key_cache, past_key_values.value_cache)): #TODO can this be turned into matrix operations?
-                        key_cache_image_or_video = key_cache[..., self.modal_token_index:(self.modal_token_index + self.image_video_tokens), :]
-                        value_cache_image_or_video = value_cache[..., self.modal_token_index:(self.modal_token_index + self.image_video_tokens), :]
-                        key_cache_image_or_video = einops.rearrange(key_cache_image_or_video, '(b s) k l d -> b k (s l) d', b=1)
-                        value_cache_image_or_video = einops.rearrange(value_cache_image_or_video, '(b s) v l d -> b v (s l) d', b=1)
-                        key_cache_image_or_video = key_cache_image_or_video[..., top_attention_rank_index, :]
-                        value_cache_image_or_video = value_cache_image_or_video[..., top_attention_rank_index, :]
-                        key_cache = torch.cat((key_cache[..., :self.modal_token_index, :].mean(0).unsqueeze(0), key_cache_image_or_video, key_cache[..., (self.modal_token_index + self.image_video_tokens):, :].mean(0).unsqueeze(0)), dim=2)
-                        value_cache = torch.cat((value_cache[..., :self.modal_token_index, :].mean(0).unsqueeze(0), value_cache_image_or_video, value_cache[..., (self.modal_token_index + self.image_video_tokens):, :].mean(0).unsqueeze(0)), dim=2)
-                        past_key_values.key_cache[i] = key_cache
-                        past_key_values.value_cache[i] = value_cache
-
                 layer_outputs = decoder_layer(
                     hidden_states,
                     attention_mask=attention_mask,
@@ -190,9 +173,6 @@ class FocusLLMModel(MistralModel):
                     output_attentions=output_attentions,
                     use_cache=use_cache,
                 )
-
-                if not self.config.token_merging  and decoder_layer.self_attn.layer_idx == self.config.merge_layer - 1:
-                        self.last_attention = layer_outputs[1]
 
             hidden_states = layer_outputs[0]
 

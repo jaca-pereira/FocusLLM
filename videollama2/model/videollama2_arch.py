@@ -127,8 +127,8 @@ class Videollama2MetaForCausalLM(ABC):
         frames = einops.rearrange(videos, 'b t c h w -> (b t) c h w')
         frames_features = self.get_model().get_vision_tower()(frames)
         frames_features = einops.rearrange(frames_features, '(b t) n h -> b t n h', b = batch_size)
-        if self.get_model().config.focus_llm:
-            frames_features = einops.rearrange(frames_features, 'b (s l) n h -> (b s) l n h', l=self.get_model().config.segment_length) # s = number of segments, l = segment length
+        """if self.get_model().config.focus_llm:
+            frames_features = einops.rearrange(frames_features, 'b (s l) n h -> (b s) l n h', l=self.get_model().config.segment_length) # s = number of segments, l = segment length"""
         return self.temporal_aggregator(frames_features)
 
     def temporal_aggregator(self, frames_features):
@@ -138,7 +138,7 @@ class Videollama2MetaForCausalLM(ABC):
         Returns:
             torch.Tensor: Video features with shape (b, n, h).
         """
-        # TODO: improve the merging method.
+
         # *********** mean pooling *************
         if self.config.mm_projector_type == "mlp2x_gelu" or self.config.mm_projector_type == "linear":
             video_features = self.get_model().mm_projector(frames_features.mean(1))
@@ -174,12 +174,12 @@ class Videollama2MetaForCausalLM(ABC):
         new_labels = [] if labels is not None else None
         cur_X_idx = 0
 
-        if self.get_model().config.focus_llm:
+        """if self.get_model().config.focus_llm:
             input_ids = input_ids.repeat_interleave(X_features.shape[0]//input_ids.shape[0], dim=0)
             if attention_mask is not None:
                 attention_mask = attention_mask.repeat_interleave(X_features.shape[0]//input_ids.shape[0], dim=0)
             if labels is not None:
-                labels = labels.repeat_interleave(X_features.shape[0]//input_ids.shape[0], dim=0)
+                labels = labels.repeat_interleave(X_features.shape[0]//input_ids.shape[0], dim=0)"""
 
         # replace image/video/audio tokens with pre-computed embeddings
         for batch_idx, cur_input_ids in enumerate(input_ids):
