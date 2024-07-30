@@ -1,5 +1,5 @@
 set -x
-
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 EVAL_DATA_DIR=eval
 OUTPUT_DIR=eval_output
 CKPT_NAME=VideoLLaMA2-7B-16F

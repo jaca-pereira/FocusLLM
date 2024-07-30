@@ -4,7 +4,7 @@ WORKER_HEART_BEAT_INTERVAL = 15
 LOGDIR = "./log_dir"
 
 NUM_FRAMES = 8
-MAX_FRAMES = 32
+MAX_FRAMES = 80
 NUM_FRAMES_PER_SECOND = 1
 Grids = [(2, 2), (1, 2), (1, 3), (1, 4), (2, 1), (3, 1), (4, 1)]
 

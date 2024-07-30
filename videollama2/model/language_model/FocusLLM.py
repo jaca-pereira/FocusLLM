@@ -46,7 +46,9 @@ class FocusLLMModel(MistralModel):
             batch_size, seq_length, _ = inputs_embeds.shape
         else:
             raise ValueError("You have to specify either decoder_input_ids or decoder_inputs_embeds")
-
+        if self.config.segment_pruning and seq_length == 1:
+            attention_mask = attention_mask[0].unsqueeze(0)
+            input_ids = input_ids[0].unsqueeze(0)
         if self.gradient_checkpointing and self.training:
             if use_cache:
                 logger.warning_once(
@@ -71,11 +73,11 @@ class FocusLLMModel(MistralModel):
         else:
             position_ids = position_ids.view(-1, seq_length).long()
 
+        if seq_length > 1 and self.config.segment_pruning and position_ids.shape[0] != inputs_embeds.shape[0]:
+            position_ids = position_ids.repeat(inputs_embeds.shape[0], 1)
         if not self.config.posi_id and seq_length > 1:
-            print(f"position_ids before: {position_ids[0][self.modal_token_index: self.modal_token_index + self.image_video_tokens]}")
             shape_full = (position_ids.shape[0], self.image_video_tokens)
             position_ids = torch.cat((position_ids[..., :self.modal_token_index], torch.full(shape_full, position_ids[0, self.modal_token_index+1]).to(position_ids.device), (position_ids[..., (self.modal_token_index+self.image_video_tokens):] - self.image_video_tokens+2)), dim=-1)
-            print(f"position_ids after: {position_ids[0][self.modal_token_index: self.modal_token_index + self.image_video_tokens]}")
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
@@ -113,8 +115,8 @@ class FocusLLMModel(MistralModel):
         hidden_states = inputs_embeds
 
         # decoder layers
-        all_hidden_states = () if output_hidden_states else None
-        all_self_attns = () if output_attentions else None
+        all_hidden_states = () if output_hidden_states and not self.config.segment_pruning else None
+        all_self_attns = () if output_attentions and not self.config.segment_pruning else None
         next_decoder_cache = None
 
         ################ new forward pass loop for getting best idx ###########################
@@ -122,12 +124,19 @@ class FocusLLMModel(MistralModel):
             #deep copy past_key_values before forward pass
             before_past_key_values = copy.deepcopy(past_key_values)
             for decoder_layer in self.layers:
+
                 if decoder_layer.self_attn.layer_idx == self.config.focus_layer:
-                    image_attention_score = self.last_attention.mean(dim=1)[0][-1][self.modal_token_index:(self.modal_token_index + self.image_video_tokens)]
-                    ratio = int(self.image_video_tokens * self.config.ratio)
-                    bottom_attention_rank_index = image_attention_score.topk(ratio, largest=False).indices + \
-                                                  self.modal_token_index
-                    bottom_attention_rank_index = bottom_attention_rank_index.sort().values
+                    if not self.config.segment_pruning:
+                        image_attention_score = self.last_attention.mean(dim=1)[..., -1, self.modal_token_index:self.modal_token_index + self.image_video_tokens]
+                        ratio = int(self.image_video_tokens * self.config.ratio)
+                        bottom_attention_rank_index = image_attention_score.topk(ratio, largest=False, dim=-1).indices + self.modal_token_index
+                        bottom_attention_rank_index = bottom_attention_rank_index.sort(dim=-1).values
+                    else:
+                        image_attention_score = self.last_attention.mean(dim=1)[..., -1, self.modal_token_index:self.modal_token_index + self.image_video_tokens]
+                        image_attention_score = image_attention_score.flatten()
+                        image_attention_score = image_attention_score / image_attention_score.norm(dim=0, keepdim=True)
+                        topk_idx = image_attention_score.topk(self.image_video_tokens, largest=True).indices
+                        topk_idx = topk_idx.sort().values
                     break
 
                 layer_outputs = decoder_layer(
@@ -144,14 +153,24 @@ class FocusLLMModel(MistralModel):
                 if decoder_layer.self_attn.layer_idx == self.config.focus_layer - 1:
                     self.last_attention = layer_outputs[1]
 
-            attention_mask[..., bottom_attention_rank_index] = attention_mask[0, 0, 0, -1].item()
-            attention_mask[..., bottom_attention_rank_index, :] = attention_mask[0, 0, 0, -1].item()
-            hidden_states = inputs_embeds
-            past_key_values = before_past_key_values
-    ##########################################################################################
+            if not self.config.segment_pruning:
+                attention_mask[..., bottom_attention_rank_index] = attention_mask[0, 0, 0, -1].item()
+                attention_mask[..., bottom_attention_rank_index, :] = attention_mask[0, 0, 0, -1].item()
+                hidden_states = inputs_embeds
+                past_key_values = before_past_key_values
+            else:
+                hidden_states_image_or_video = inputs_embeds[..., self.modal_token_index:self.modal_token_index + self.image_video_tokens, :]
+                hidden_states_image_or_video = einops.rearrange(hidden_states_image_or_video, 'b h d -> (b h) d')
+                hidden_states_image_or_video = hidden_states_image_or_video[topk_idx]
+                hidden_states = torch.cat((inputs_embeds[0, :self.modal_token_index, :], hidden_states_image_or_video, inputs_embeds[0, self.modal_token_index + self.image_video_tokens:, :]), dim=0).unsqueeze(0)
+                attention_mask = attention_mask[0].unsqueeze(0)
+                past_key_values = before_past_key_values
+                position_ids = position_ids[0].unsqueeze(0)
+
+        ##########################################################################################
 
         for decoder_layer in self.layers:
-            if output_hidden_states:
+            if output_hidden_states and not self.config.segment_pruning:
                 all_hidden_states += (hidden_states,)
 
             if self.gradient_checkpointing and self.training:
@@ -179,13 +198,13 @@ class FocusLLMModel(MistralModel):
             if use_cache:
                 next_decoder_cache = layer_outputs[2 if output_attentions else 1]
 
-            if output_attentions:
+            if output_attentions and not self.config.segment_pruning:
                 all_self_attns += (layer_outputs[1],)
 
         hidden_states = self.norm(hidden_states)
 
         # add hidden states from the last decoder layer
-        if output_hidden_states:
+        if output_hidden_states and not self.config.segment_pruning:
             all_hidden_states += (hidden_states,)
 
         next_cache = None

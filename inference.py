@@ -32,16 +32,15 @@ def inference():
     model.get_model().config.pad_token = tokenizer.pad_token_id
     model.get_model().config.ratio = 0.5
     model.get_model().config.focus_layer = 3
-    model.get_model().config.focus_llm = False
-    model.get_model().config.posi_id = False
-    # model.get_model().config.segment_length = 8
-    #model.get_model().config.merge_layer = 27 #para replicar os links, foi feito com o merge nos tokens todos, agr o merge esta so nos de texto
-    #TEORIA: DEVIAMOS LIMITAR O MERGE PARA APENAS OS TOKENS QUE NÃO SÃO RELEVANTES PARA NXTP DO PRIMEIRO TOKEN
+    model.get_model().config.focus_llm = True
+    model.get_model().config.posi_id = True
+    model.get_model().config.segment_pruning = True
+    sample_scheme = "fps"
     conv_mode = 'llama_2'
 
     # 2. Visual preprocess (load & transform image or video).
     if modal_list[0] == 'video':
-        tensor = process_video(paths[0], processor, model.config.image_aspect_ratio, sample_scheme="uniform").to(dtype=torch.float16, device='cuda', non_blocking=True)
+        tensor = process_video(paths[0], processor, model.config.image_aspect_ratio, num_frames=16, sample_scheme=sample_scheme).to(dtype=torch.float16, device='cuda', non_blocking=True)
         default_mm_token = DEFAULT_MMODAL_TOKEN["VIDEO"]
         modal_token_index = MMODAL_TOKEN_INDEX["VIDEO"]
     else:
