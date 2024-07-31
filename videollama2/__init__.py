@@ -21,9 +21,9 @@ def model_init(model_path=None):
     # ADD NEW CONFIG OPTIONS
     model.get_model().config.pad_token = tokenizer.pad_token_id
     model.get_model().config.ratio = 0.5
-    model.get_model().config.focus_layer = 3
+    model.get_model().config.focus_layer = 28
     model.get_model().config.focus_llm = True
-    model.get_model().config.posi_id = True
+    model.get_model().config.posi_id = False
     model.get_model().config.segment_pruning = True
     sample_scheme = "fps"
 
