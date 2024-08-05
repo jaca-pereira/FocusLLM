@@ -31,11 +31,11 @@ def inference():
     model = model.to('cuda:0')
     model.get_model().config.pad_token = tokenizer.pad_token_id
     model.get_model().config.ratio = 0.5
-    model.get_model().config.focus_layer = 28
+    model.get_model().config.focus_layer = 3
     model.get_model().config.focus_llm = True
-    model.get_model().config.posi_id = False
-    model.get_model().config.segment_pruning = True
-    sample_scheme = "fps"
+    model.get_model().config.posi_id = True
+    model.get_model().config.segment_pruning = False
+    sample_scheme = "uniform"
     conv_mode = 'llama_2'
 
     # 2. Visual preprocess (load & transform image or video).

@@ -75,7 +75,7 @@ class FocusLLMModel(MistralModel):
 
         if seq_length > 1 and self.config.segment_pruning and position_ids.shape[0] != inputs_embeds.shape[0]:
             position_ids = position_ids.repeat(inputs_embeds.shape[0], 1)
-        if not self.config.posi_id and seq_length > 1:
+        if not self.config.posi_id and seq_length > 1 and not self.config.segment_pruning:
             shape_full = (position_ids.shape[0], self.image_video_tokens)
             position_ids = torch.cat((position_ids[..., :self.modal_token_index], torch.full(shape_full, position_ids[0, self.modal_token_index+1]).to(position_ids.device), (position_ids[..., (self.modal_token_index+self.image_video_tokens):] - self.image_video_tokens+2)), dim=-1)
         if inputs_embeds is None:
@@ -165,7 +165,16 @@ class FocusLLMModel(MistralModel):
                 hidden_states = torch.cat((inputs_embeds[0, :self.modal_token_index, :], hidden_states_image_or_video, inputs_embeds[0, self.modal_token_index + self.image_video_tokens:, :]), dim=0).unsqueeze(0)
                 attention_mask = attention_mask[0].unsqueeze(0)
                 past_key_values = before_past_key_values
-                position_ids = position_ids[0].unsqueeze(0)
+                if not self.config.posi_id:
+                    position_embeddings_image_or_video = position_ids[..., self.modal_token_index:self.modal_token_index + self.image_video_tokens]
+                    for i in range(position_embeddings_image_or_video.shape[0]):
+                        position_embeddings_image_or_video[i] += i*self.image_video_tokens
+                    position_embeddings_image_or_video = einops.rearrange(position_embeddings_image_or_video,
+                                                                          'b h -> (b h)')
+                    position_embeddings_image_or_video = position_embeddings_image_or_video[topk_idx]
+                    position_ids = torch.cat((position_ids[0, :self.modal_token_index],
+                                              position_embeddings_image_or_video,
+                                              position_ids[0, self.modal_token_index + self.image_video_tokens:]+(position_embeddings_image_or_video.shape[0]-1)*self.image_video_tokens), dim=0).unsqueeze(0)
 
         ##########################################################################################
 
