@@ -35,7 +35,7 @@ def inference():
     model.get_model().config.focus_llm = True
     model.get_model().config.posi_id = True
     model.get_model().config.segment_pruning = True
-    num_frames = 48
+    num_frames = 512
     conv_mode = 'llama_2'
 
     # 2. Visual preprocess (load & transform image or video).

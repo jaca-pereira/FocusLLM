@@ -126,14 +126,17 @@ class Videollama2MetaForCausalLM(ABC):
 
         if self.get_model().config.segment_pruning:
             videos = einops.rearrange(videos, 'b (s l) c w h -> (b s) l c w h', l=num_frames)
-            frames_features = self.get_model().get_vision_tower()(videos[0]).unsqueeze(0)
+            device = videos.device
+            videos = videos.cpu()
+            frames_features = self.temporal_aggregator(self.get_model().get_vision_tower()(videos[0].to(device)).unsqueeze(0))
             for b in range(1, videos.shape[0]):
-                frames_features = torch.cat([frames_features, self.get_model().get_vision_tower()(videos[b]).unsqueeze(0)], dim=0)
+                frames_features = torch.cat([frames_features, self.temporal_aggregator(self.get_model().get_vision_tower()(videos[b].to(device)).unsqueeze(0))], dim=0)
+            return frames_features
         else:
             frames = einops.rearrange(videos, 'b t c h w -> (b t) c h w')
             frames_features = self.get_model().get_vision_tower()(frames)
             frames_features = einops.rearrange(frames_features, '(b t) n h -> b t n h', b = batch_size)
-        return self.temporal_aggregator(frames_features)
+            return self.temporal_aggregator(frames_features)
 
     def temporal_aggregator(self, frames_features):
         """Temporal aggregation of frame features.

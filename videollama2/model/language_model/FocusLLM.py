@@ -146,26 +146,34 @@ class FocusLLMModel(MistralModel):
                         use_cache=use_cache,
                     )
                 else:
+                    if hidden_states.device.type != 'cpu':
+                        device = hidden_states.device
+                    attention_mask = attention_mask.cpu()
+                    hidden_states = hidden_states.cpu()
+                    inputs_embeds = inputs_embeds.cpu()
+                    position_ids = position_ids.cpu()
                     if len(past_key_values) == 0:
                         past_key_values = [copy.deepcopy(past_key_values) for _ in range(inputs_embeds.shape[0])]
                     layer_outputs = decoder_layer(
-                        hidden_states[0].unsqueeze(0),
-                        attention_mask=attention_mask[0].unsqueeze(0),
-                        position_ids=position_ids[0].unsqueeze(0),
+                        hidden_states=hidden_states[0].unsqueeze(0).to(device),
+                        attention_mask=attention_mask[0].unsqueeze(0).to(device),
+                        position_ids=position_ids[0].unsqueeze(0).to(device),
                         past_key_value=past_key_values[0],
                         output_attentions=output_attentions,
                         use_cache=use_cache,
                     )
-                    layer_outputs = [layer_outputs]
+                    layer_outputs = [layer_outputs[i].cpu() for i in range(len(layer_outputs)-1)]
+                    layer_outputs =[layer_outputs]
                     for i in range(1, len(hidden_states)):
                         layer_outputs_batch = decoder_layer(
-                            hidden_states[i].unsqueeze(0),
-                            attention_mask=attention_mask[i].unsqueeze(0),
-                            position_ids=position_ids[i].unsqueeze(0),
+                            hidden_states[i].unsqueeze(0).to(device),
+                            attention_mask=attention_mask[i].unsqueeze(0).to(device),
+                            position_ids=position_ids[i].unsqueeze(0).to(device),
                             past_key_value=past_key_values[i],
                             output_attentions=output_attentions,
                             use_cache=use_cache,
                         )
+                        layer_outputs_batch = [layer_outputs_batch[i].cpu() for i in range(len(layer_outputs_batch)-1)]
                         layer_outputs.append(layer_outputs_batch)
 
                 hidden_states = torch.cat([layer_outputs[i][0] for i in range(len(layer_outputs))], dim=0)
@@ -183,7 +191,9 @@ class FocusLLMModel(MistralModel):
                 hidden_states_image_or_video = einops.rearrange(hidden_states_image_or_video, 'b h d -> (b h) d')
                 hidden_states_image_or_video = hidden_states_image_or_video[topk_idx]
                 hidden_states = torch.cat((inputs_embeds[0, :self.modal_token_index, :], hidden_states_image_or_video, inputs_embeds[0, self.modal_token_index + self.image_video_tokens:, :]), dim=0).unsqueeze(0)
+                hidden_states = hidden_states.to(device)
                 attention_mask = attention_mask[0].unsqueeze(0)
+                attention_mask = attention_mask.to(device)
                 past_key_values = DynamicCache()
                 position_ids = position_ids[0].unsqueeze(0)
                 del topk_idx, image_attention_score, hidden_states_image_or_video, layer_outputs, layer_outputs_batch, self.last_attention
