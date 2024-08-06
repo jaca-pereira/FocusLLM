@@ -34,13 +34,13 @@ def inference():
     model.get_model().config.focus_layer = 3
     model.get_model().config.focus_llm = True
     model.get_model().config.posi_id = True
-    model.get_model().config.segment_pruning = False
-    sample_scheme = "uniform"
+    model.get_model().config.segment_pruning = True
+    num_frames = 48
     conv_mode = 'llama_2'
 
     # 2. Visual preprocess (load & transform image or video).
     if modal_list[0] == 'video':
-        tensor = process_video(paths[0], processor, model.config.image_aspect_ratio, num_frames=16, sample_scheme=sample_scheme).to(dtype=torch.float16, device='cuda', non_blocking=True)
+        tensor = process_video(paths[0], processor, model.config.image_aspect_ratio, num_frames=num_frames, sample_scheme="uniform").to(dtype=torch.float16, device='cuda', non_blocking=True)
         default_mm_token = DEFAULT_MMODAL_TOKEN["VIDEO"]
         modal_token_index = MMODAL_TOKEN_INDEX["VIDEO"]
     else:

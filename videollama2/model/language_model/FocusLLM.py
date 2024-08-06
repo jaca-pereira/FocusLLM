@@ -121,8 +121,6 @@ class FocusLLMModel(MistralModel):
 
         ################ new forward pass loop for getting best idx ###########################
         if self.config.focus_llm and seq_length > 1:
-            #deep copy past_key_values before forward pass
-            before_past_key_values = copy.deepcopy(past_key_values)
             for decoder_layer in self.layers:
 
                 if decoder_layer.self_attn.layer_idx == self.config.focus_layer:
@@ -138,44 +136,57 @@ class FocusLLMModel(MistralModel):
                         topk_idx = image_attention_score.topk(self.image_video_tokens, largest=True).indices
                         topk_idx = topk_idx.sort().values
                     break
+                if not self.config.segment_pruning:
+                    layer_outputs = decoder_layer(
+                        hidden_states,
+                        attention_mask=attention_mask,
+                        position_ids=position_ids,
+                        past_key_value=past_key_values,
+                        output_attentions=output_attentions,
+                        use_cache=use_cache,
+                    )
+                else:
+                    if len(past_key_values) == 0:
+                        past_key_values = [copy.deepcopy(past_key_values) for _ in range(inputs_embeds.shape[0])]
+                    layer_outputs = decoder_layer(
+                        hidden_states[0].unsqueeze(0),
+                        attention_mask=attention_mask[0].unsqueeze(0),
+                        position_ids=position_ids[0].unsqueeze(0),
+                        past_key_value=past_key_values[0],
+                        output_attentions=output_attentions,
+                        use_cache=use_cache,
+                    )
+                    layer_outputs = [layer_outputs]
+                    for i in range(1, len(hidden_states)):
+                        layer_outputs_batch = decoder_layer(
+                            hidden_states[i].unsqueeze(0),
+                            attention_mask=attention_mask[i].unsqueeze(0),
+                            position_ids=position_ids[i].unsqueeze(0),
+                            past_key_value=past_key_values[i],
+                            output_attentions=output_attentions,
+                            use_cache=use_cache,
+                        )
+                        layer_outputs.append(layer_outputs_batch)
 
-                layer_outputs = decoder_layer(
-                    hidden_states,
-                    attention_mask=attention_mask,
-                    position_ids=position_ids,
-                    past_key_value=past_key_values,
-                    output_attentions=output_attentions,
-                    use_cache=use_cache,
-                )
-
-                hidden_states = layer_outputs[0]
+                hidden_states = torch.cat([layer_outputs[i][0] for i in range(len(layer_outputs))], dim=0)
 
                 if decoder_layer.self_attn.layer_idx == self.config.focus_layer - 1:
-                    self.last_attention = layer_outputs[1]
+                    self.last_attention = torch.cat([layer_outputs[i][1] for i in range(len(layer_outputs))], dim=0)
 
             if not self.config.segment_pruning:
                 attention_mask[..., bottom_attention_rank_index] = attention_mask[0, 0, 0, -1].item()
                 attention_mask[..., bottom_attention_rank_index, :] = attention_mask[0, 0, 0, -1].item()
                 hidden_states = inputs_embeds
-                past_key_values = before_past_key_values
+                past_key_values = DynamicCache()
             else:
                 hidden_states_image_or_video = inputs_embeds[..., self.modal_token_index:self.modal_token_index + self.image_video_tokens, :]
                 hidden_states_image_or_video = einops.rearrange(hidden_states_image_or_video, 'b h d -> (b h) d')
                 hidden_states_image_or_video = hidden_states_image_or_video[topk_idx]
                 hidden_states = torch.cat((inputs_embeds[0, :self.modal_token_index, :], hidden_states_image_or_video, inputs_embeds[0, self.modal_token_index + self.image_video_tokens:, :]), dim=0).unsqueeze(0)
                 attention_mask = attention_mask[0].unsqueeze(0)
-                past_key_values = before_past_key_values
-                if not self.config.posi_id:
-                    position_embeddings_image_or_video = position_ids[..., self.modal_token_index:self.modal_token_index + self.image_video_tokens]
-                    for i in range(position_embeddings_image_or_video.shape[0]):
-                        position_embeddings_image_or_video[i] += i*self.image_video_tokens
-                    position_embeddings_image_or_video = einops.rearrange(position_embeddings_image_or_video,
-                                                                          'b h -> (b h)')
-                    position_embeddings_image_or_video = position_embeddings_image_or_video[topk_idx]
-                    position_ids = torch.cat((position_ids[0, :self.modal_token_index],
-                                              position_embeddings_image_or_video,
-                                              position_ids[0, self.modal_token_index + self.image_video_tokens:]+(position_embeddings_image_or_video.shape[0]-1)*self.image_video_tokens), dim=0).unsqueeze(0)
-
+                past_key_values = DynamicCache()
+                position_ids = position_ids[0].unsqueeze(0)
+                del topk_idx, image_attention_score, hidden_states_image_or_video, layer_outputs, layer_outputs_batch, self.last_attention
         ##########################################################################################
 
         for decoder_layer in self.layers:
