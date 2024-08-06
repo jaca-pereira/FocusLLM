@@ -19,13 +19,15 @@ def model_init(model_path=None):
         tokenizer.pad_token = tokenizer.unk_token
 
     # ADD NEW CONFIG OPTIONS
-    model.get_model().config.pad_token = tokenizer.pad_token_id
     model.get_model().config.ratio = 0.5
     model.get_model().config.focus_layer = 16
-    model.get_model().config.focus_llm = True
+    model.get_model().config.focus_llm = False
     model.get_model().config.posi_id = True
     model.get_model().config.segment_pruning = True
-    num_frames = 96
+    model.get_model().config.use_cpu = False
+    model.get_model().config.use_sequential = False
+    model.get_model().config.plot_sys_user_prompt_sim = True
+    num_frames = 64
 
     if 'vicuna' in model_name.lower():
         # vicuna

@@ -16,6 +16,8 @@ from matplotlib import pyplot as plt
 import seaborn as sns
 from moviepy.editor import VideoFileClip
 from scipy.stats import ks_2samp, entropy
+from sklearn.manifold import TSNE
+from sklearn.preprocessing import StandardScaler
 from transformers import StoppingCriteria
 import torch.nn.functional as F
 from scenedetect import open_video, SceneManager
@@ -775,3 +777,63 @@ def compare_distributions(data, bins=50, hidden_states_or_attention='hidden_stat
         else:
             plt.savefig(f'./figures/distribution_comparison/attention_vectors/cdf_comparison_{video1}_{prompt1}_vs_{video2}_{prompt2}.png')
         plt.close()
+
+
+def plot_sim_and_tsne(metric: torch.Tensor, video_name:str, name: str, layer_num: int, frame_num: int):
+    """
+    Plot similarity matrix and t-SNE visualization.
+
+    Args:
+        metric (torch.Tensor): The metric to visualize, in shape [batch_size, num_tokens, token_size].
+    """
+    # Ensure the input tensor is on the GPU
+    metric = metric.to('cuda')
+
+    batch_size, num_tokens, token_size = metric.shape
+
+    # Flatten the metric to shape [batch_size * num_tokens, token_size]
+    flat_metric = metric.reshape(-1, token_size)
+
+    # Normalize the flat_metric for cosine similarity calculation
+    norms = torch.norm(flat_metric, dim=1, keepdim=True)
+    normalized_metric = flat_metric / norms
+
+    # Compute similarity matrix on the GPU
+    similarity_matrix = torch.matmul(normalized_metric, normalized_metric.T)
+
+    # Move the similarity matrix to CPU and convert to numpy for plotting
+    similarity_matrix = similarity_matrix.cpu().numpy()
+
+    # Plot similarity matrix
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(similarity_matrix, cmap='viridis')
+    plt.title(f"Token Similarity Matrix {name}")
+    plt.xlabel("Tokens (Flattened Batches)")
+    plt.ylabel("Tokens (Flattened Batches)")
+
+    save_dir = f"./figures/sys_user_prompt_comp/{video_name}/layer_{layer_num}/frame_{frame_num}"
+    os.makedirs(save_dir, exist_ok=True)
+    plt.savefig(os.path.join(save_dir, f"similarity_matrix_{name}.png"))
+
+    # Compute t-SNE visualization
+    tsne = TSNE(n_components=2, random_state=0)
+    # Move the metric back to CPU and convert to numpy for t-SNE
+    flat_metric = flat_metric.cpu().numpy()
+    # Standardizing the data before applying t-SNE
+    standardized_data = StandardScaler().fit_transform(flat_metric)
+    tsne_results = tsne.fit_transform(standardized_data)
+
+    # Prepare t-SNE plot
+    plt.figure(figsize=(10, 8))
+    s = range(20, 0, -5)
+    for batch in range(batch_size):
+        indices = list(range(batch * num_tokens, (batch + 1) * num_tokens))
+        plt.scatter(tsne_results[indices, 0], tsne_results[indices, 1], label=f'Batch {batch}', s=s[batch])  # Smaller dots
+
+    plt.title(f"t-SNE of Tokens {name}")
+    plt.xlabel("t-SNE Dimension 1")
+    plt.ylabel("t-SNE Dimension 2")
+    plt.legend()
+    plt.savefig(os.path.join(save_dir, f"tsne_{name}.png"))
+
+
