@@ -21,15 +21,11 @@ def model_init(model_path=None):
     # ADD NEW CONFIG OPTIONS
     model.get_model().config.pad_token = tokenizer.pad_token_id
     model.get_model().config.ratio = 0.5
-    model.get_model().config.focus_layer = 28
+    model.get_model().config.focus_layer = 16
     model.get_model().config.focus_llm = True
-    model.get_model().config.posi_id = False
+    model.get_model().config.posi_id = True
     model.get_model().config.segment_pruning = True
-    sample_scheme = "fps"
-
-
-    num_frames = model.config.num_frames if hasattr(model.config, "num_frames") else NUM_FRAMES
-    print(f"num_frames: {num_frames}")
+    num_frames = 96
 
     if 'vicuna' in model_name.lower():
         # vicuna
@@ -41,7 +37,7 @@ def model_init(model_path=None):
         # mistral/mixtral/llama2
         version = 'llama_2'
 
-    return model, partial(process_video, aspect_ratio=None, processor=processor, num_frames=16, sample_scheme=sample_scheme), tokenizer, version
+    return model, partial(process_video, aspect_ratio=None, processor=processor, num_frames=num_frames, sample_scheme="uniform"), tokenizer, version
     #return model, partial(process_video, aspect_ratio=None, processor=processor, num_frames=num_frames), tokenizer, version
 
 

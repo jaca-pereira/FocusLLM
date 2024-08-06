@@ -8,4 +8,4 @@ echo $CONDA_DEFAULT_ENV
 
 cd ~/data/FocusLLM
 
-CUDA_VISIBLE_DEVICES=0,1,2,3 bash scripts/eval/eval_video_mcqa_videomme.sh
+CUDA_VISIBLE_DEVICES=0,1 bash scripts/eval/eval_video_mcqa_videomme.sh

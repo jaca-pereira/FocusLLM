@@ -17,7 +17,7 @@ def inference():
     paths = ['assets/RoadAccidents127_x264.mp4']
     #questions = ['Summarize the events in the video and name the main animals that appear.'] #para replicar o link
     #questions = ['Summarize the events in the video and name the main objects that appear.'] #QUANDO PEDIMOS OBJETOS ELE COMPORTA-SE DE FORMA ESTRANHA. Ou ent quando é a dividir por 4  e a mask nao fica bem setup ele começa a dar links
-    questions = ['Describe the video.']
+    questions = ['Describe the video. Are there any vehicle collisions?']
     #questions = ['What is your opinion on the goal scored by Cristiano Ronaldo?']
     modal_list = ['video']
     #modal_list = ['image']
@@ -29,13 +29,14 @@ def inference():
     model_name = get_model_name_from_path(model_path)
     tokenizer, model, processor, context_len = load_pretrained_model(model_path, None, model_name)
     model = model.to('cuda:0')
-    model.get_model().config.pad_token = tokenizer.pad_token_id
     model.get_model().config.ratio = 0.5
-    model.get_model().config.focus_layer = 3
-    model.get_model().config.focus_llm = True
+    model.get_model().config.focus_layer = 22
+    model.get_model().config.focus_llm = False
     model.get_model().config.posi_id = True
-    model.get_model().config.segment_pruning = True
-    num_frames = 512
+    model.get_model().config.segment_pruning = False
+    model.get_model().config.use_cpu = False
+    model.get_model().config.use_sequential = False
+    num_frames = 16
     conv_mode = 'llama_2'
 
     # 2. Visual preprocess (load & transform image or video).

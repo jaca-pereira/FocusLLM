@@ -122,21 +122,40 @@ class FocusLLMModel(MistralModel):
         ################ new forward pass loop for getting best idx ###########################
         if self.config.focus_llm and seq_length > 1:
             for decoder_layer in self.layers:
-
                 if decoder_layer.self_attn.layer_idx == self.config.focus_layer:
+                    image_attention_score = self.last_attention.mean(dim=1)[..., -1,
+                                            self.modal_token_index:self.modal_token_index + self.image_video_tokens]
                     if not self.config.segment_pruning:
-                        image_attention_score = self.last_attention.mean(dim=1)[..., -1, self.modal_token_index:self.modal_token_index + self.image_video_tokens]
                         ratio = int(self.image_video_tokens * self.config.ratio)
-                        bottom_attention_rank_index = image_attention_score.topk(ratio, largest=False, dim=-1).indices + self.modal_token_index
+                        bottom_attention_rank_index = image_attention_score.topk(ratio, largest=False,
+                                                                                 dim=-1).indices + self.modal_token_index
                         bottom_attention_rank_index = bottom_attention_rank_index.sort(dim=-1).values
                     else:
-                        image_attention_score = self.last_attention.mean(dim=1)[..., -1, self.modal_token_index:self.modal_token_index + self.image_video_tokens]
                         image_attention_score = image_attention_score.flatten()
                         image_attention_score = image_attention_score / image_attention_score.norm(dim=0, keepdim=True)
-                        topk_idx = image_attention_score.topk(self.image_video_tokens, largest=True).indices
-                        topk_idx = topk_idx.sort().values
+                        topk_idx = image_attention_score.topk(self.image_video_tokens,
+                                                              largest=True).indices.sort().values
                     break
-                if not self.config.segment_pruning:
+
+                if self.config.segment_pruning and self.config.use_sequential:
+                    if decoder_layer.self_attn.layer_idx == 0:
+                        device = inputs_embeds.device if self.config.use_cpu else None
+                        if self.config.use_cpu:
+                            hidden_states, attention_mask, position_ids, inputs_embeds = hidden_states.cpu(), attention_mask.cpu(), position_ids.cpu(), inputs_embeds.cpu()
+                    if not past_key_values:
+                        past_key_values = [copy.deepcopy(past_key_values) for _ in range(inputs_embeds.shape[0])]
+                    layer_outputs = [decoder_layer(
+                        hidden_states[i].unsqueeze(0).to(device),
+                        attention_mask[i].unsqueeze(0).to(device),
+                        position_ids[i].unsqueeze(0).to(device),
+                        past_key_values[i],
+                        output_attentions=output_attentions,
+                        use_cache=use_cache,
+                    ) for i in range(len(hidden_states))]
+                    hidden_states = torch.cat([lo[0].to('cpu' if self.config.use_cpu else None) for lo in layer_outputs], dim=0)
+                    if decoder_layer.self_attn.layer_idx == self.config.focus_layer - 1:
+                        self.last_attention = torch.cat([lo[1].to('cpu' if self.config.use_cpu else None) for lo in layer_outputs], dim=0)
+                else:
                     layer_outputs = decoder_layer(
                         hidden_states,
                         attention_mask=attention_mask,
@@ -145,41 +164,9 @@ class FocusLLMModel(MistralModel):
                         output_attentions=output_attentions,
                         use_cache=use_cache,
                     )
-                else:
-                    if hidden_states.device.type != 'cpu':
-                        device = hidden_states.device
-                    attention_mask = attention_mask.cpu()
-                    hidden_states = hidden_states.cpu()
-                    inputs_embeds = inputs_embeds.cpu()
-                    position_ids = position_ids.cpu()
-                    if len(past_key_values) == 0:
-                        past_key_values = [copy.deepcopy(past_key_values) for _ in range(inputs_embeds.shape[0])]
-                    layer_outputs = decoder_layer(
-                        hidden_states=hidden_states[0].unsqueeze(0).to(device),
-                        attention_mask=attention_mask[0].unsqueeze(0).to(device),
-                        position_ids=position_ids[0].unsqueeze(0).to(device),
-                        past_key_value=past_key_values[0],
-                        output_attentions=output_attentions,
-                        use_cache=use_cache,
-                    )
-                    layer_outputs = [layer_outputs[i].cpu() for i in range(len(layer_outputs)-1)]
-                    layer_outputs =[layer_outputs]
-                    for i in range(1, len(hidden_states)):
-                        layer_outputs_batch = decoder_layer(
-                            hidden_states[i].unsqueeze(0).to(device),
-                            attention_mask=attention_mask[i].unsqueeze(0).to(device),
-                            position_ids=position_ids[i].unsqueeze(0).to(device),
-                            past_key_value=past_key_values[i],
-                            output_attentions=output_attentions,
-                            use_cache=use_cache,
-                        )
-                        layer_outputs_batch = [layer_outputs_batch[i].cpu() for i in range(len(layer_outputs_batch)-1)]
-                        layer_outputs.append(layer_outputs_batch)
-
-                hidden_states = torch.cat([layer_outputs[i][0] for i in range(len(layer_outputs))], dim=0)
-
-                if decoder_layer.self_attn.layer_idx == self.config.focus_layer - 1:
-                    self.last_attention = torch.cat([layer_outputs[i][1] for i in range(len(layer_outputs))], dim=0)
+                    hidden_states = layer_outputs[0]
+                    if decoder_layer.self_attn.layer_idx == self.config.focus_layer - 1:
+                        self.last_attention = layer_outputs[1]
 
             if not self.config.segment_pruning:
                 attention_mask[..., bottom_attention_rank_index] = attention_mask[0, 0, 0, -1].item()
@@ -187,16 +174,16 @@ class FocusLLMModel(MistralModel):
                 hidden_states = inputs_embeds
                 past_key_values = DynamicCache()
             else:
-                hidden_states_image_or_video = inputs_embeds[..., self.modal_token_index:self.modal_token_index + self.image_video_tokens, :]
-                hidden_states_image_or_video = einops.rearrange(hidden_states_image_or_video, 'b h d -> (b h) d')
-                hidden_states_image_or_video = hidden_states_image_or_video[topk_idx]
-                hidden_states = torch.cat((inputs_embeds[0, :self.modal_token_index, :], hidden_states_image_or_video, inputs_embeds[0, self.modal_token_index + self.image_video_tokens:, :]), dim=0).unsqueeze(0)
-                hidden_states = hidden_states.to(device)
-                attention_mask = attention_mask[0].unsqueeze(0)
-                attention_mask = attention_mask.to(device)
+                hidden_states_image_or_video = einops.rearrange(
+                    inputs_embeds[..., self.modal_token_index:self.modal_token_index + self.image_video_tokens, :],
+                    'b h d -> (b h) d')[topk_idx]
+                hidden_states = torch.cat((inputs_embeds[0, :self.modal_token_index, :], hidden_states_image_or_video,
+                                           inputs_embeds[0, self.modal_token_index + self.image_video_tokens:, :]),
+                                          dim=0).unsqueeze(0).to(device)
+                attention_mask = attention_mask[0].unsqueeze(0).to(device)
                 past_key_values = DynamicCache()
                 position_ids = position_ids[0].unsqueeze(0)
-                del topk_idx, image_attention_score, hidden_states_image_or_video, layer_outputs, layer_outputs_batch, self.last_attention
+                del topk_idx, image_attention_score, hidden_states_image_or_video, layer_outputs, self.last_attention
         ##########################################################################################
 
         for decoder_layer in self.layers:

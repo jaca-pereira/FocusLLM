@@ -124,18 +124,24 @@ class Videollama2MetaForCausalLM(ABC):
         assert len(videos.size()) == 5
         batch_size = videos.size(0)
 
-        if self.get_model().config.segment_pruning:
+        if self.get_model().config.segment_pruning and self.get_model().config.use_sequential:
             videos = einops.rearrange(videos, 'b (s l) c w h -> (b s) l c w h', l=num_frames)
-            device = videos.device
-            videos = videos.cpu()
-            frames_features = self.temporal_aggregator(self.get_model().get_vision_tower()(videos[0].to(device)).unsqueeze(0))
+            device = videos.device if self.get_model().config.use_cpu else None
+            if device:
+                videos = videos.cpu()
+            frames_features = self.temporal_aggregator(
+                self.get_model().get_vision_tower()(videos[0].to(device)).unsqueeze(0))
             for b in range(1, videos.shape[0]):
-                frames_features = torch.cat([frames_features, self.temporal_aggregator(self.get_model().get_vision_tower()(videos[b].to(device)).unsqueeze(0))], dim=0)
+                frame = videos[b].to(device) if device else videos[b]
+                frames_features = torch.cat([frames_features, self.temporal_aggregator(
+                    self.get_model().get_vision_tower()(frame).unsqueeze(0))], dim=0)
             return frames_features
         else:
             frames = einops.rearrange(videos, 'b t c h w -> (b t) c h w')
             frames_features = self.get_model().get_vision_tower()(frames)
-            frames_features = einops.rearrange(frames_features, '(b t) n h -> b t n h', b = batch_size)
+            frames_features = einops.rearrange(frames_features, '(b t) n h -> b t n h', b=batch_size)
+            if self.get_model().config.segment_pruning:
+                frames_features = einops.rearrange(frames_features, 'b (s l) n h -> (b s) l n h', l=num_frames)
             return self.temporal_aggregator(frames_features)
 
     def temporal_aggregator(self, frames_features):
