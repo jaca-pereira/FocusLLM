@@ -78,9 +78,7 @@ class FocusLLMModel(MistralModel):
 
         if seq_length > 1 and self.config.segment_pruning and position_ids.shape[0] != inputs_embeds.shape[0]:
             position_ids = position_ids.repeat(inputs_embeds.shape[0], 1)
-        if not self.config.posi_id and seq_length > 1 and not self.config.segment_pruning:
-            shape_full = (position_ids.shape[0], self.image_video_tokens)
-            position_ids = torch.cat((position_ids[..., :self.modal_token_index], torch.full(shape_full, position_ids[0, self.modal_token_index+1]).to(position_ids.device), (position_ids[..., (self.modal_token_index+self.image_video_tokens):] - self.image_video_tokens+2)), dim=-1)
+
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
@@ -250,13 +248,21 @@ class FocusLLMModel(MistralModel):
                             :].unsqueeze(0)
                         ), dim=2)
 
-                    if isinstance(past_key_values, list):
-                        past_key_values = past_key_values[0]
+                    past_key_values = DynamicCache()
                     past_key_values.key_cache = all_key_cache
                     past_key_values.value_cache = all_value_cache
+                if self.config.pos_ids or not self.config.segment_pruning:
+                    position_ids = position_ids[0].unsqueeze(0)
+                else:
+                    position_ids_system = position_ids[0, :self.modal_token_index].unsqueeze(0)
+                    position_ids_image_or_video = torch.arange(0, self.image_video_tokens*batch_size, 1,  device=position_ids.device) + self.modal_token_index
+                    position_ids_image_or_video = position_ids_image_or_video[topk_idx].unsqueeze(0)
+                    position_ids_user = torch.arange(len(position_ids[0, self.modal_token_index + self.image_video_tokens:]), device=position_ids.device)+ position_ids_image_or_video[0, -1] +1
+                    position_ids_user = position_ids_user.unsqueeze(0)
+                    position_ids = torch.cat((position_ids_system, position_ids_image_or_video, position_ids_user), dim=-1)
+                    position_ids = position_ids % seq_length
 
-                position_ids = position_ids[0].unsqueeze(0)
-                del topk_idx, image_attention_score, hidden_states_image_or_video, layer_outputs, self.last_attention
+
         ##########################################################################################
         iterated_layers = self.layers[self.config.focus_layer:] if not self.config.reforward and self.config.focus_llm and seq_length > 1 else self.layers
         for decoder_layer in iterated_layers:

@@ -30,16 +30,16 @@ def inference():
     tokenizer, model, processor, context_len = load_pretrained_model(model_path, None, model_name)
     model = model.to('cuda:0')
     model.get_model().config.ratio = 0.5
-    model.get_model().config.focus_layer = 3
-    model.get_model().config.focus_llm = True
-    model.get_model().config.posi_id = True
-    model.get_model().config.segment_pruning = True
+    model.get_model().config.focus_layer = 16
+    model.get_model().config.focus_llm = False
+    model.get_model().config.pos_ids = True
+    model.get_model().config.segment_pruning = False
     model.get_model().config.use_cpu = False
     model.get_model().config.use_sequential = False
     model.get_model().config.plot_sys_user_prompt_sim = False
-    model.get_model().config.video_name = paths[0].split('/')[-1].removesuffix('.mp4')
-    model.get_model().config.reforward = False
-    num_frames = 64
+    # model.get_model().config.video_name = paths[0].split('/')[-1].removesuffix('.mp4')
+    model.get_model().config.reforward = True
+    num_frames = 16
     conv_mode = 'llama_2'
 
     # 2. Visual preprocess (load & transform image or video).

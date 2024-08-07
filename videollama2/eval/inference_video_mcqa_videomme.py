@@ -16,6 +16,7 @@ from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
 
 import sys
+
 sys.path.append('./')
 from videollama2 import model_init, x_infer
 
@@ -26,7 +27,7 @@ warnings.filterwarnings('ignore', category=UserWarning, message='TypedStorage is
 def split_list(lst, n):
     """Split a list into n (roughly) equal-sized chunks"""
     chunk_size = math.ceil(len(lst) / n)  # integer division
-    return [lst[i:i+chunk_size] for i in range(0, len(lst), chunk_size)]
+    return [lst[i:i + chunk_size] for i in range(0, len(lst), chunk_size)]
 
 
 def get_chunk(lst, n, k):
@@ -62,7 +63,6 @@ def get_seq_frames(total_num_frames, desired_num_frames):
 
 
 class VideoMMEDataset(Dataset):
-
     video_formats = ['.mp4', '.avi', '.mov', '.mkv']
 
     def __init__(self, video_folder, subtitle_folder, data_list, processor):
@@ -73,7 +73,7 @@ class VideoMMEDataset(Dataset):
 
     def __len__(self):
         return len(self.data_list)
-    
+
     def __getitem__(self, idx):
         line = self.data_list[idx]
 
@@ -176,7 +176,8 @@ def build_videomme_eval(args, processor):
     # questions = json.load(open(args.question_file, "r"))
     questions = get_chunk(questions, args.num_chunks, args.chunk_idx)
     dataset = VideoMMEDataset(args.video_folder, args.subtitle_folder, questions, processor)
-    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers, collate_fn=collate_fn)
+    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers,
+                            collate_fn=collate_fn)
 
     return dataloader
 
@@ -186,7 +187,8 @@ def videomme_dump(record, instruct, output):
 
     pred_answer = re.findall('[\(\ \[]*([A-D])[\)\.\ \]]*', output)
     try:
-        assert len(pred_answer) >= 1, 'The video \"{}\" output \"{}\" is not in the expected format'.format(record['youtube_id'], instruct + '\n' + output)
+        assert len(pred_answer) >= 1, 'The video \"{}\" output \"{}\" is not in the expected format'.format(
+            record['youtube_id'], instruct + '\n' + output)
         pred_answer = pred_answer[0].strip()
         pred_answer = pred_answer.strip('()')
         pred_idx = letters.index(pred_answer)
@@ -211,7 +213,7 @@ def run_inference(args):
 
     # Iterate over each sample in the ground truth file
     for i, (videos, subtitles, records) in enumerate(tqdm(val_loader)):
-        video_tensor  = videos[0]
+        video_tensor = videos[0]
         subtitle = subtitles[0]
         record = records[0]
 
@@ -238,11 +240,13 @@ def run_inference(args):
             for op_idx, op in enumerate(ops):
                 instruct += f"{op}\n"
             instruct += "The best answer is: "
-            output = x_infer(video_tensor, instruct, mode='vanilla', model=model, tokenizer=tokenizer, do_sample=False, version=version)
+            output = x_infer(video_tensor, instruct, mode='vanilla', model=model, tokenizer=tokenizer, do_sample=False,
+                             version=version)
             new_record['questions'][idx]['response'] = videomme_dump(record, instruct, output)
 
             instruct = f"This video's subtitles are listed below:\n{subtitle}\n" + instruct
-            output = x_infer(video_tensor, instruct, mode='vanilla', model=model, tokenizer=tokenizer, do_sample=False, version=version)
+            output = x_infer(video_tensor, instruct, mode='vanilla', model=model, tokenizer=tokenizer, do_sample=False,
+                             version=version)
             new_record_sub['questions'][idx]['response'] = videomme_dump(record, instruct, output)
 
         ans_file.write(json.dumps(new_record) + ",\n")
