@@ -31,7 +31,7 @@ def inference():
     tokenizer, model, processor, context_len = load_pretrained_model(model_path, None, model_name)
     model = model.to('cuda:0')
     model.get_model().config.ratio = 0.5
-    model.get_model().config.focus_layers = np.array([3])
+    model.get_model().config.focus_layers = np.array([3, 16])
     model.get_model().config.focus_llm = True
     model.get_model().config.pos_ids = True
     model.get_model().config.individual_pos_ids = True
@@ -40,7 +40,7 @@ def inference():
     model.get_model().config.use_sequential = True
     model.get_model().config.plot_sys_user_prompt_sim = False
     # model.get_model().config.video_name = paths[0].split('/')[-1].removesuffix('.mp4')
-    model.get_model().config.reforward = True
+    model.get_model().config.reforward = False
     num_frames = 80
     conv_mode = 'llama_2'
 
@@ -71,7 +71,7 @@ def inference():
             modal_list=modal_list,
             do_sample=True,
             temperature=0.2,
-            max_new_tokens=1024,
+            max_new_tokens=10,
             use_cache=True,
             output_hidden_states=True,
             output_attentions=True,

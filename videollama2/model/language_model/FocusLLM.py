@@ -241,10 +241,6 @@ class FocusLLMModel(MistralModel):
                             past_key_values = DynamicCache()
                             past_key_values.key_cache = all_key_cache
                             past_key_values.value_cache = all_value_cache
-                            if self.config.use_sequential:
-                                self.config.use_sequential = False
-                                if self.config.use_cpu:
-                                    self.config.use_cpu = False
                     break
                 elif self.config.segment_pruning and decoder_layer.self_attn.layer_idx in self.config.focus_layers[:-1]:
                     hidden_states_image_or_video_half_1 = einops.rearrange(hidden_states[:len(hidden_states) // 2,
@@ -264,97 +260,138 @@ class FocusLLMModel(MistralModel):
                                                       self.modal_token_index + self.image_video_tokens:, :].unsqueeze(
                                                           0)), dim=1).to(device)
                     hidden_states = torch.cat((hidden_states_half_1, hidden_states_half_2), dim=0)
-                    if isinstance(past_key_values, DynamicCache):
-                        num_layers = len(past_key_values.key_cache)
-                    else:
-                        num_layers = len(past_key_values[0].key_cache)
-                    all_key_cache = [[] for _ in range(num_layers)]
-                    all_value_cache = [[] for _ in range(num_layers)]
                     if isinstance(past_key_values, list):
-                        for segment in past_key_values:
+                        num_layers = len(past_key_values[0].key_cache)
+                        all_key_cache = [[[] for _ in range(num_layers)] for _ in range(2)]
+                        all_value_cache = [[[] for _ in range(num_layers)] for _ in range(2)]
+                        for segment in past_key_values[:len(past_key_values) // 2]:
                             for layer_idx in range(num_layers):
-                                all_key_cache[layer_idx].append(segment.key_cache[layer_idx])
-                                all_value_cache[layer_idx].append(segment.value_cache[layer_idx])
-                        all_value_cache = [torch.cat(all_value_cache[layer_idx], dim=0) for layer_idx in
+                                all_key_cache[0][layer_idx].append(segment.key_cache[layer_idx])
+                                all_value_cache[0][layer_idx].append(segment.value_cache[layer_idx])
+                        all_value_cache_half_1 = [torch.cat(all_value_cache[0][layer_idx], dim=0) for layer_idx in
                                            range(num_layers)]
-                        all_key_cache = [torch.cat(all_key_cache[layer_idx], dim=0) for layer_idx in range(num_layers)]
+                        all_key_cache_half_1 = [torch.cat(all_key_cache[0][layer_idx], dim=0) for layer_idx in range(num_layers)]
+                        for segment in past_key_values[len(past_key_values) // 2:]:
+                            for layer_idx in range(num_layers):
+                                all_key_cache[1][layer_idx].append(segment.key_cache[layer_idx])
+                                all_value_cache[1][layer_idx].append(segment.value_cache[layer_idx])
+                        all_value_cache_half_2 = [torch.cat(all_value_cache[1][layer_idx], dim=0) for layer_idx in
+                                                  range(num_layers)]
+                        all_key_cache_half_2 = [torch.cat(all_key_cache[1][layer_idx], dim=0) for layer_idx in
+                                                range(num_layers)]
+                        all_key_cache = [all_key_cache_half_1, all_key_cache_half_2]
+                        all_value_cache = [all_value_cache_half_1, all_value_cache_half_2]
+                        for segment_idx in range(2):
+                            for layer_idx in range(num_layers):
+                                all_key_cache_layer_idx = all_key_cache[segment_idx][layer_idx]
+                                all_value_cache_layer_idx = all_value_cache[segment_idx][layer_idx]
+                                past_key_values_image_video = einops.rearrange(all_key_cache_layer_idx[...,
+                                                                               self.modal_token_index:self.modal_token_index + self.image_video_tokens,
+                                                                               :], 'b m n d -> (b n) m d')[
+                                    topk_idx_half_1 if segment_idx == 0 else topk_idx_half_2]
+                                past_key_values_image_video = einops.rearrange(past_key_values_image_video,
+                                                                               'n m d -> m n d')
+                                all_key_cache_layer_idx = torch.cat((all_key_cache_layer_idx[0, :,
+                                                                     :self.modal_token_index, :].unsqueeze(0),
+                                                                     past_key_values_image_video.unsqueeze(0),
+                                                                     all_key_cache_layer_idx[0, :,
+                                                                     self.modal_token_index + self.image_video_tokens:,
+                                                                     :].unsqueeze(0)), dim=2)
+
+                                past_value_values_image_video = einops.rearrange(all_value_cache_layer_idx[...,
+                                                                                 self.modal_token_index:self.modal_token_index + self.image_video_tokens,
+                                                                                 :], 'b m n d -> (b n) m d')[
+                                    topk_idx_half_1 if segment_idx == 0 else topk_idx_half_2]
+                                past_value_values_image_video = einops.rearrange(past_value_values_image_video,
+                                                                                 'n m d -> m n d')
+                                all_value_cache_layer_idx = torch.cat((all_value_cache_layer_idx[0, :,
+                                                                       :self.modal_token_index, :].unsqueeze(0),
+                                                                       past_value_values_image_video.unsqueeze(0),
+                                                                       all_value_cache_layer_idx[0, :,
+                                                                       self.modal_token_index + self.image_video_tokens:,
+                                                                       :].unsqueeze(0)), dim=2)
+                                all_key_cache[segment_idx][layer_idx] = all_key_cache_layer_idx
+                                all_value_cache[segment_idx][layer_idx] = all_value_cache_layer_idx
+                        past_key_values = [DynamicCache() for _ in range(2)]
+                        for segment_idx in range(2):
+                            past_key_values[segment_idx].key_cache = all_key_cache[segment_idx]
+                            past_key_values[segment_idx].value_cache = all_value_cache[segment_idx]
                     else:
+                        num_layers = len(past_key_values.key_cache)
                         all_key_cache = past_key_values.key_cache
                         all_value_cache = past_key_values.value_cache
 
-                    for layer_idx in range(num_layers):
-                        all_key_cache_layer_idx_half_1 = all_key_cache[layer_idx][:len(all_key_cache[layer_idx]) // 2]
-                        past_key_values_image_video_half_1 = einops.rearrange(all_key_cache_layer_idx_half_1[...,
-                                                                              self.modal_token_index:self.modal_token_index + self.image_video_tokens,
-                                                                              :], 'b m n d -> (b n) m d')[
-                            topk_idx_half_1]
-                        past_key_values_image_video_half_1 = einops.rearrange(past_key_values_image_video_half_1,
-                                                                              'n m d -> m n d')
-                        all_key_cache_layer_idx_half_1 = torch.cat((all_key_cache_layer_idx_half_1[0, :,
-                                                                    :self.modal_token_index, :].unsqueeze(0),
-                                                                    past_key_values_image_video_half_1.unsqueeze(0),
-                                                                    all_key_cache_layer_idx_half_1[0, :,
-                                                                    self.modal_token_index + self.image_video_tokens:,
-                                                                    :].unsqueeze(0)), dim=2)
+                        for layer_idx in range(num_layers):
+                            all_key_cache_layer_idx_half_1 = all_key_cache[layer_idx][:len(all_key_cache[layer_idx]) // 2]
+                            past_key_values_image_video_half_1 = einops.rearrange(all_key_cache_layer_idx_half_1[...,
+                                                                                  self.modal_token_index:self.modal_token_index + self.image_video_tokens,
+                                                                                  :], 'b m n d -> (b n) m d')[
+                                topk_idx_half_1]
+                            past_key_values_image_video_half_1 = einops.rearrange(past_key_values_image_video_half_1,
+                                                                                  'n m d -> m n d')
+                            all_key_cache_layer_idx_half_1 = torch.cat((all_key_cache_layer_idx_half_1[0, :,
+                                                                        :self.modal_token_index, :].unsqueeze(0),
+                                                                        past_key_values_image_video_half_1.unsqueeze(0),
+                                                                        all_key_cache_layer_idx_half_1[0, :,
+                                                                        self.modal_token_index + self.image_video_tokens:,
+                                                                        :].unsqueeze(0)), dim=2)
 
-                        all_key_cache_layer_idx_half_2 = all_key_cache[layer_idx][len(all_key_cache[layer_idx]) // 2:]
-                        past_key_values_image_video_half_2 = einops.rearrange(all_key_cache_layer_idx_half_2[...,
-                                                                              self.modal_token_index:self.modal_token_index + self.image_video_tokens,
-                                                                              :], 'b m n d -> (b n) m d')[
-                            topk_idx_half_2]
-                        past_key_values_image_video_half_2 = einops.rearrange(past_key_values_image_video_half_2,
-                                                                              'n m d -> m n d')
-                        all_key_cache_layer_idx_half_2 = torch.cat((all_key_cache_layer_idx_half_2[0, :,
-                                                                    :self.modal_token_index, :].unsqueeze(0),
-                                                                    past_key_values_image_video_half_2.unsqueeze(0),
-                                                                    all_key_cache_layer_idx_half_2[0, :,
-                                                                    self.modal_token_index + self.image_video_tokens:,
-                                                                    :].unsqueeze(0)), dim=2)
-                        all_key_cache[layer_idx] = torch.cat(
-                            (all_key_cache_layer_idx_half_1, all_key_cache_layer_idx_half_2), dim=0)
+                            all_key_cache_layer_idx_half_2 = all_key_cache[layer_idx][len(all_key_cache[layer_idx]) // 2:]
+                            past_key_values_image_video_half_2 = einops.rearrange(all_key_cache_layer_idx_half_2[...,
+                                                                                  self.modal_token_index:self.modal_token_index + self.image_video_tokens,
+                                                                                  :], 'b m n d -> (b n) m d')[
+                                topk_idx_half_2]
+                            past_key_values_image_video_half_2 = einops.rearrange(past_key_values_image_video_half_2,
+                                                                                  'n m d -> m n d')
+                            all_key_cache_layer_idx_half_2 = torch.cat((all_key_cache_layer_idx_half_2[0, :,
+                                                                        :self.modal_token_index, :].unsqueeze(0),
+                                                                        past_key_values_image_video_half_2.unsqueeze(0),
+                                                                        all_key_cache_layer_idx_half_2[0, :,
+                                                                        self.modal_token_index + self.image_video_tokens:,
+                                                                        :].unsqueeze(0)), dim=2)
+                            all_key_cache[layer_idx] = torch.cat(
+                                (all_key_cache_layer_idx_half_1, all_key_cache_layer_idx_half_2), dim=0)
 
-                        all_value_cache_layer_idx_half_1 = all_value_cache[layer_idx][
-                                                           :len(all_value_cache[layer_idx]) // 2]
-                        past_value_values_image_video_half_1 = einops.rearrange(all_value_cache_layer_idx_half_1[...,
-                                                                                self.modal_token_index:self.modal_token_index + self.image_video_tokens,
-                                                                                :], 'b m n d -> (b n) m d')[
-                            topk_idx_half_1]
-                        past_value_values_image_video_half_1 = einops.rearrange(past_value_values_image_video_half_1,
-                                                                                'n m d -> m n d')
-                        all_value_cache_layer_idx_half_1 = torch.cat((all_value_cache_layer_idx_half_1[0, :,
-                                                                      :self.modal_token_index, :].unsqueeze(0),
-                                                                      past_value_values_image_video_half_1.unsqueeze(0),
-                                                                      all_value_cache_layer_idx_half_1[0, :,
-                                                                      self.modal_token_index + self.image_video_tokens:,
-                                                                      :].unsqueeze(0)), dim=2)
+                            all_value_cache_layer_idx_half_1 = all_value_cache[layer_idx][
+                                                               :len(all_value_cache[layer_idx]) // 2]
+                            past_value_values_image_video_half_1 = einops.rearrange(all_value_cache_layer_idx_half_1[...,
+                                                                                    self.modal_token_index:self.modal_token_index + self.image_video_tokens,
+                                                                                    :], 'b m n d -> (b n) m d')[
+                                topk_idx_half_1]
+                            past_value_values_image_video_half_1 = einops.rearrange(past_value_values_image_video_half_1,
+                                                                                    'n m d -> m n d')
+                            all_value_cache_layer_idx_half_1 = torch.cat((all_value_cache_layer_idx_half_1[0, :,
+                                                                          :self.modal_token_index, :].unsqueeze(0),
+                                                                          past_value_values_image_video_half_1.unsqueeze(0),
+                                                                          all_value_cache_layer_idx_half_1[0, :,
+                                                                          self.modal_token_index + self.image_video_tokens:,
+                                                                          :].unsqueeze(0)), dim=2)
 
-                        all_value_cache_layer_idx_half_2 = all_value_cache[layer_idx][
-                                                           len(all_value_cache[layer_idx]) // 2:]
-                        past_value_values_image_video_half_2 = einops.rearrange(all_value_cache_layer_idx_half_2[...,
-                                                                                self.modal_token_index:self.modal_token_index + self.image_video_tokens,
-                                                                                :], 'b m n d -> (b n) m d')[
-                            topk_idx_half_2]
-                        past_value_values_image_video_half_2 = einops.rearrange(past_value_values_image_video_half_2,
-                                                                                'n m d -> m n d')
-                        all_value_cache_layer_idx_half_2 = torch.cat((all_value_cache_layer_idx_half_2[0, :,
-                                                                      :self.modal_token_index, :].unsqueeze(0),
-                                                                      past_value_values_image_video_half_2.unsqueeze(0),
-                                                                      all_value_cache_layer_idx_half_2[0, :,
-                                                                      self.modal_token_index + self.image_video_tokens:,
-                                                                      :].unsqueeze(0)), dim=2)
-                        all_value_cache[layer_idx] = torch.cat(
-                            (all_value_cache_layer_idx_half_1, all_value_cache_layer_idx_half_2), dim=0)
+                            all_value_cache_layer_idx_half_2 = all_value_cache[layer_idx][
+                                                               len(all_value_cache[layer_idx]) // 2:]
+                            past_value_values_image_video_half_2 = einops.rearrange(all_value_cache_layer_idx_half_2[...,
+                                                                                    self.modal_token_index:self.modal_token_index + self.image_video_tokens,
+                                                                                    :], 'b m n d -> (b n) m d')[
+                                topk_idx_half_2]
+                            past_value_values_image_video_half_2 = einops.rearrange(past_value_values_image_video_half_2,
+                                                                                    'n m d -> m n d')
+                            all_value_cache_layer_idx_half_2 = torch.cat((all_value_cache_layer_idx_half_2[0, :,
+                                                                          :self.modal_token_index, :].unsqueeze(0),
+                                                                          past_value_values_image_video_half_2.unsqueeze(0),
+                                                                          all_value_cache_layer_idx_half_2[0, :,
+                                                                          self.modal_token_index + self.image_video_tokens:,
+                                                                          :].unsqueeze(0)), dim=2)
+                            all_value_cache[layer_idx] = torch.cat(
+                                (all_value_cache_layer_idx_half_1, all_value_cache_layer_idx_half_2), dim=0)
+
+
+                        past_key_values = DynamicCache()
+                        past_key_values.key_cache = all_key_cache
+                        past_key_values.value_cache = all_value_cache
 
                     attention_mask = attention_mask[:len(hidden_states)].to(device)
                     position_ids = position_ids[:len(hidden_states)].to(device)
 
-                    past_key_values = DynamicCache()
-                    past_key_values.key_cache = all_key_cache
-                    past_key_values.value_cache = all_value_cache
-                    if self.config.use_sequential:
-                        self.config.use_sequential = False
-                        if self.config.use_cpu:
-                            self.config.use_cpu = False
 
                 if self.config.segment_pruning and self.config.use_sequential:
                     if decoder_layer.self_attn.layer_idx == 0:
