@@ -208,6 +208,8 @@ class FocusLLMModel(MistralModel):
                                     for layer_idx in range(num_layers):
                                         all_key_cache[layer_idx].append(segment.key_cache[layer_idx])
                                         all_value_cache[layer_idx].append(segment.value_cache[layer_idx])
+                                all_value_cache = [torch.cat(all_value_cache[layer_idx], dim=0) for layer_idx in range(num_layers)]
+                                all_key_cache = [torch.cat(all_key_cache[layer_idx], dim=0) for layer_idx in range(num_layers)]
                             else:
                                 all_key_cache = past_key_values.key_cache
                                 all_value_cache = past_key_values.value_cache
@@ -239,6 +241,10 @@ class FocusLLMModel(MistralModel):
                             past_key_values = DynamicCache()
                             past_key_values.key_cache = all_key_cache
                             past_key_values.value_cache = all_value_cache
+                            if self.config.use_sequential:
+                                self.config.use_sequential = False
+                                if self.config.use_cpu:
+                                    self.config.use_cpu = False
                     break
                 elif self.config.segment_pruning and decoder_layer.self_attn.layer_idx in self.config.focus_layers[:-1]:
                     hidden_states_image_or_video_half_1 = einops.rearrange(hidden_states[:len(hidden_states) // 2,
@@ -269,6 +275,9 @@ class FocusLLMModel(MistralModel):
                             for layer_idx in range(num_layers):
                                 all_key_cache[layer_idx].append(segment.key_cache[layer_idx])
                                 all_value_cache[layer_idx].append(segment.value_cache[layer_idx])
+                        all_value_cache = [torch.cat(all_value_cache[layer_idx], dim=0) for layer_idx in
+                                           range(num_layers)]
+                        all_key_cache = [torch.cat(all_key_cache[layer_idx], dim=0) for layer_idx in range(num_layers)]
                     else:
                         all_key_cache = past_key_values.key_cache
                         all_value_cache = past_key_values.value_cache
@@ -342,6 +351,10 @@ class FocusLLMModel(MistralModel):
                     past_key_values = DynamicCache()
                     past_key_values.key_cache = all_key_cache
                     past_key_values.value_cache = all_value_cache
+                    if self.config.use_sequential:
+                        self.config.use_sequential = False
+                        if self.config.use_cpu:
+                            self.config.use_cpu = False
 
                 if self.config.segment_pruning and self.config.use_sequential:
                     if decoder_layer.self_attn.layer_idx == 0:
