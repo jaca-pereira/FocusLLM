@@ -159,15 +159,13 @@ class FocusLLMModel(MistralModel):
                             image_attention_score_half_1 = image_attention_score[
                                                            :len(image_attention_score) // 2].flatten()
                             image_attention_score_half_1 = image_attention_score_half_1 / image_attention_score_half_1.norm(
-                                dim=0,
-                                keepdim=True)
+                                dim=0, keepdim=True)
                             topk_idx_half_1 = image_attention_score_half_1.topk(self.image_video_tokens,
                                                                                 largest=True).indices.sort().values
                             image_attention_score_half_2 = image_attention_score[
                                                            len(image_attention_score) // 2:].flatten()
                             image_attention_score_half_2 = image_attention_score_half_2 / image_attention_score_half_2.norm(
-                                dim=0,
-                                keepdim=True)
+                                dim=0, keepdim=True)
                             topk_idx_half_2 = image_attention_score_half_2.topk(self.image_video_tokens,
                                                                                 largest=True).indices.sort().values
 
@@ -182,26 +180,22 @@ class FocusLLMModel(MistralModel):
                         attention_mask = attention_mask[0].unsqueeze(0).to(device)
                         position_ids = position_ids[0].unsqueeze(0).to(device)
                         if self.config.reforward:
-                            hidden_states_image_or_video = einops.rearrange(
-                                inputs_embeds[...,
-                                self.modal_token_index:self.modal_token_index + self.image_video_tokens, :],
-                                'b h d -> (b h) d')[topk_idx]
+                            hidden_states_image_or_video = einops.rearrange(inputs_embeds[...,
+                                                                            self.modal_token_index:self.modal_token_index + self.image_video_tokens,
+                                                                            :], 'b h d -> (b h) d')[topk_idx]
                             hidden_states = torch.cat((inputs_embeds[0, :self.modal_token_index, :],
-                                                       hidden_states_image_or_video,
-                                                       inputs_embeds[0,
-                                                       self.modal_token_index + self.image_video_tokens:, :]),
-                                                      dim=0).unsqueeze(0).to(device)
+                                                       hidden_states_image_or_video, inputs_embeds[0,
+                                                                                     self.modal_token_index + self.image_video_tokens:,
+                                                                                     :]), dim=0).unsqueeze(0).to(device)
                             past_key_values = DynamicCache()
                         else:
-                            hidden_states_image_or_video = einops.rearrange(
-                                hidden_states[...,
-                                self.modal_token_index:self.modal_token_index + self.image_video_tokens, :],
-                                'b h d -> (b h) d')[topk_idx]
+                            hidden_states_image_or_video = einops.rearrange(hidden_states[...,
+                                                                            self.modal_token_index:self.modal_token_index + self.image_video_tokens,
+                                                                            :], 'b h d -> (b h) d')[topk_idx]
                             hidden_states = torch.cat((hidden_states[0, :self.modal_token_index, :],
-                                                       hidden_states_image_or_video,
-                                                       hidden_states[0,
-                                                       self.modal_token_index + self.image_video_tokens:, :]),
-                                                      dim=0).unsqueeze(0).to(device)
+                                                       hidden_states_image_or_video, hidden_states[0,
+                                                                                     self.modal_token_index + self.image_video_tokens:,
+                                                                                     :]), dim=0).unsqueeze(0).to(device)
                             if isinstance(past_key_values, DynamicCache):
                                 num_layers = len(past_key_values.key_cache)
                             else:
@@ -224,38 +218,35 @@ class FocusLLMModel(MistralModel):
                                                                                :], 'b m n d -> (b n) m d')[topk_idx]
                                 past_key_values_image_video = einops.rearrange(past_key_values_image_video,
                                                                                'n m d -> m n d')
-                                all_key_cache[layer_idx] = torch.cat(
-                                    (all_key_cache[layer_idx][0, :, :self.modal_token_index,
-                                     :].unsqueeze(0), past_key_values_image_video.unsqueeze(0),
-                                     all_key_cache[layer_idx][0, :,
-                                     self.modal_token_index + self.image_video_tokens:,
-                                     :].unsqueeze(0)), dim=2)
+                                all_key_cache[layer_idx] = torch.cat((all_key_cache[layer_idx][0, :,
+                                                                      :self.modal_token_index, :].unsqueeze(0),
+                                                                      past_key_values_image_video.unsqueeze(0),
+                                                                      all_key_cache[layer_idx][0, :,
+                                                                      self.modal_token_index + self.image_video_tokens:,
+                                                                      :].unsqueeze(0)), dim=2)
 
                                 past_value_values_image_video = einops.rearrange(all_value_cache[layer_idx][...,
                                                                                  self.modal_token_index:self.modal_token_index + self.image_video_tokens,
                                                                                  :], 'b m n d -> (b n) m d')[topk_idx]
                                 past_value_values_image_video = einops.rearrange(past_value_values_image_video,
                                                                                  'n m d -> m n d')
-                                all_value_cache[layer_idx] = torch.cat((
-                                    all_value_cache[layer_idx][0, :, :self.modal_token_index,
-                                    :].unsqueeze(0),
-                                    past_value_values_image_video.unsqueeze(0),
-                                    all_value_cache[layer_idx][0, :,
-                                    self.modal_token_index + self.image_video_tokens:,
-                                    :].unsqueeze(0)), dim=2)
+                                all_value_cache[layer_idx] = torch.cat((all_value_cache[layer_idx][0, :,
+                                                                        :self.modal_token_index, :].unsqueeze(0),
+                                                                        past_value_values_image_video.unsqueeze(0),
+                                                                        all_value_cache[layer_idx][0, :,
+                                                                        self.modal_token_index + self.image_video_tokens:,
+                                                                        :].unsqueeze(0)), dim=2)
                             past_key_values = DynamicCache()
                             past_key_values.key_cache = all_key_cache
                             past_key_values.value_cache = all_value_cache
                     break
                 elif self.config.segment_pruning and decoder_layer.self_attn.layer_idx in self.config.focus_layers[:-1]:
-                    hidden_states_image_or_video_half_1 = einops.rearrange(
-                        hidden_states[:len(hidden_states) // 2,
-                        self.modal_token_index:self.modal_token_index + self.image_video_tokens, :],
-                        'b h d -> (b h) d')[topk_idx_half_1]
-                    hidden_states_image_or_video_half_2 = einops.rearrange(
-                        hidden_states[len(hidden_states) // 2:,
-                        self.modal_token_index:self.modal_token_index + self.image_video_tokens, :],
-                        'b h d -> (b h) d')[topk_idx_half_2]
+                    hidden_states_image_or_video_half_1 = einops.rearrange(hidden_states[:len(hidden_states) // 2,
+                                                                           self.modal_token_index:self.modal_token_index + self.image_video_tokens,
+                                                                           :], 'b h d -> (b h) d')[topk_idx_half_1]
+                    hidden_states_image_or_video_half_2 = einops.rearrange(hidden_states[len(hidden_states) // 2:,
+                                                                           self.modal_token_index:self.modal_token_index + self.image_video_tokens,
+                                                                           :], 'b h d -> (b h) d')[topk_idx_half_2]
                     hidden_states_half_1 = torch.cat((hidden_states[0, :self.modal_token_index, :].unsqueeze(0),
                                                       hidden_states_image_or_video_half_1.unsqueeze(0), hidden_states[0,
                                                                                                         self.modal_token_index + self.image_video_tokens:,
@@ -274,7 +265,6 @@ class FocusLLMModel(MistralModel):
                     all_key_cache = [[] for _ in range(num_layers)]
                     all_value_cache = [[] for _ in range(num_layers)]
                     if isinstance(past_key_values, list):
-                        # TODO CHANGE THIS
                         for segment in past_key_values:
                             for layer_idx in range(num_layers):
                                 all_key_cache[layer_idx].append(segment.key_cache[layer_idx])
@@ -291,12 +281,12 @@ class FocusLLMModel(MistralModel):
                             topk_idx_half_1]
                         past_key_values_image_video_half_1 = einops.rearrange(past_key_values_image_video_half_1,
                                                                               'n m d -> m n d')
-                        all_key_cache_layer_idx_half_1 = torch.cat(
-                            (all_key_cache_layer_idx_half_1[0, :, :self.modal_token_index,
-                             :].unsqueeze(0), past_key_values_image_video_half_1.unsqueeze(0),
-                             all_key_cache_layer_idx_half_1[0, :,
-                             self.modal_token_index + self.image_video_tokens:,
-                             :].unsqueeze(0)), dim=2)
+                        all_key_cache_layer_idx_half_1 = torch.cat((all_key_cache_layer_idx_half_1[0, :,
+                                                                    :self.modal_token_index, :].unsqueeze(0),
+                                                                    past_key_values_image_video_half_1.unsqueeze(0),
+                                                                    all_key_cache_layer_idx_half_1[0, :,
+                                                                    self.modal_token_index + self.image_video_tokens:,
+                                                                    :].unsqueeze(0)), dim=2)
 
                         all_key_cache_layer_idx_half_2 = all_key_cache[layer_idx][len(all_key_cache[layer_idx]) // 2:]
                         past_key_values_image_video_half_2 = einops.rearrange(all_key_cache_layer_idx_half_2[...,
@@ -305,12 +295,12 @@ class FocusLLMModel(MistralModel):
                             topk_idx_half_2]
                         past_key_values_image_video_half_2 = einops.rearrange(past_key_values_image_video_half_2,
                                                                               'n m d -> m n d')
-                        all_key_cache_layer_idx_half_2 = torch.cat(
-                            (all_key_cache_layer_idx_half_2[0, :, :self.modal_token_index,
-                             :].unsqueeze(0), past_key_values_image_video_half_2.unsqueeze(0),
-                             all_key_cache_layer_idx_half_2[0, :,
-                             self.modal_token_index + self.image_video_tokens:,
-                             :].unsqueeze(0)), dim=2)
+                        all_key_cache_layer_idx_half_2 = torch.cat((all_key_cache_layer_idx_half_2[0, :,
+                                                                    :self.modal_token_index, :].unsqueeze(0),
+                                                                    past_key_values_image_video_half_2.unsqueeze(0),
+                                                                    all_key_cache_layer_idx_half_2[0, :,
+                                                                    self.modal_token_index + self.image_video_tokens:,
+                                                                    :].unsqueeze(0)), dim=2)
                         all_key_cache[layer_idx] = torch.cat(
                             (all_key_cache_layer_idx_half_1, all_key_cache_layer_idx_half_2), dim=0)
 
@@ -322,12 +312,12 @@ class FocusLLMModel(MistralModel):
                             topk_idx_half_1]
                         past_value_values_image_video_half_1 = einops.rearrange(past_value_values_image_video_half_1,
                                                                                 'n m d -> m n d')
-                        all_value_cache_layer_idx_half_1 = torch.cat(
-                            (all_value_cache_layer_idx_half_1[0, :, :self.modal_token_index,
-                             :].unsqueeze(0), past_value_values_image_video_half_1.unsqueeze(0),
-                             all_value_cache_layer_idx_half_1[0, :,
-                             self.modal_token_index + self.image_video_tokens:,
-                             :].unsqueeze(0)), dim=2)
+                        all_value_cache_layer_idx_half_1 = torch.cat((all_value_cache_layer_idx_half_1[0, :,
+                                                                      :self.modal_token_index, :].unsqueeze(0),
+                                                                      past_value_values_image_video_half_1.unsqueeze(0),
+                                                                      all_value_cache_layer_idx_half_1[0, :,
+                                                                      self.modal_token_index + self.image_video_tokens:,
+                                                                      :].unsqueeze(0)), dim=2)
 
                         all_value_cache_layer_idx_half_2 = all_value_cache[layer_idx][
                                                            len(all_value_cache[layer_idx]) // 2:]
@@ -337,12 +327,12 @@ class FocusLLMModel(MistralModel):
                             topk_idx_half_2]
                         past_value_values_image_video_half_2 = einops.rearrange(past_value_values_image_video_half_2,
                                                                                 'n m d -> m n d')
-                        all_value_cache_layer_idx_half_2 = torch.cat(
-                            (all_value_cache_layer_idx_half_2[0, :, :self.modal_token_index,
-                             :].unsqueeze(0), past_value_values_image_video_half_2.unsqueeze(0),
-                             all_value_cache_layer_idx_half_2[0, :,
-                             self.modal_token_index + self.image_video_tokens:,
-                             :].unsqueeze(0)), dim=2)
+                        all_value_cache_layer_idx_half_2 = torch.cat((all_value_cache_layer_idx_half_2[0, :,
+                                                                      :self.modal_token_index, :].unsqueeze(0),
+                                                                      past_value_values_image_video_half_2.unsqueeze(0),
+                                                                      all_value_cache_layer_idx_half_2[0, :,
+                                                                      self.modal_token_index + self.image_video_tokens:,
+                                                                      :].unsqueeze(0)), dim=2)
                         all_value_cache[layer_idx] = torch.cat(
                             (all_value_cache_layer_idx_half_1, all_value_cache_layer_idx_half_2), dim=0)
 
@@ -363,8 +353,7 @@ class FocusLLMModel(MistralModel):
                     layer_outputs = [decoder_layer(hidden_states[i].unsqueeze(0).to(device),
                                                    attention_mask[i].unsqueeze(0).to(device),
                                                    position_ids[i].unsqueeze(0).to(device), past_key_values[i],
-                                                   output_attentions=output_attentions, use_cache=use_cache) for i
-                                     in
+                                                   output_attentions=output_attentions, use_cache=use_cache) for i in
                                      range(len(hidden_states))]
                     hidden_states = torch.cat(
                         [lo[0].to('cpu' if self.config.use_cpu else None) for lo in layer_outputs], dim=0)

@@ -1,6 +1,7 @@
 import copy
 from functools import partial
 
+import numpy as np
 import torch
 
 from .model import Videollama2LlamaForCausalLM, Videollama2MistralForCausalLM, Videollama2MixtralForCausalLM
@@ -20,17 +21,17 @@ def model_init(model_path=None):
 
     # ADD NEW CONFIG OPTIONS
     model.get_model().config.ratio = 0.5
-    model.get_model().config.focus_layers = [3, 16]
+    model.get_model().config.focus_layers = np.array([3, 16])
     model.get_model().config.focus_llm = True
     model.get_model().config.pos_ids = True
-    model.get_model().config.individual_pos_ids =True
+    model.get_model().config.individual_pos_ids = True
     model.get_model().config.segment_pruning = True
     model.get_model().config.use_cpu = False
     model.get_model().config.use_sequential = False
     model.get_model().config.plot_sys_user_prompt_sim = False
     # model.get_model().config.video_name = paths[0].split('/')[-1].removesuffix('.mp4')
-    model.get_model().config.reforward = True
-    num_frames = 48
+    model.get_model().config.reforward = False
+    num_frames = 64
 
     if 'vicuna' in model_name.lower():
         # vicuna
