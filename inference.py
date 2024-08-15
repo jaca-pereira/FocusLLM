@@ -37,7 +37,7 @@ def inference():
     model.get_model().config.pos_ids = True
     model.get_model().config.individual_pos_ids = True
     model.get_model().config.segment_pruning = True
-    model.get_model().config.use_cpu = False
+    model.get_model().config.use_cpu = True
     model.get_model().config.use_sequential = True
     model.get_model().config.plot_sys_user_prompt_sim = False
     # model.get_model().config.video_name = paths[0].split('/')[-1].removesuffix('.mp4')
@@ -72,7 +72,7 @@ def inference():
             modal_list=modal_list,
             do_sample=True,
             temperature=0.2,
-            max_new_tokens=10,
+            max_new_tokens=1024,
             use_cache=True,
             output_hidden_states=True,
             output_attentions=True,

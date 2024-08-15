@@ -129,7 +129,7 @@ class FocusLLMModel(MistralModel):
             layer_outputs = [decoder_layer(hidden_states[i].unsqueeze(0).to(device),
                                            attention_mask[i].unsqueeze(0).to(device),
                                            position_ids[i].unsqueeze(0).to(device), past_key_values[i],
-                                           output_attentions=output_attentions, output_hidden_states=output_hidden_states,
+                                           output_attentions=output_attentions,
                                            use_cache=use_cache) for i in range(len(hidden_states))]
             hidden_states = torch.cat([lo[0].to('cpu' if self.config.use_cpu else None) for lo in layer_outputs], dim=0)
             last_attention = torch.cat([lo[1].to('cpu' if self.config.use_cpu else None) for lo in layer_outputs],

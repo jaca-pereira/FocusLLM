@@ -21,17 +21,18 @@ def model_init(model_path=None):
 
     # ADD NEW CONFIG OPTIONS
     model.get_model().config.ratio = 0.5
-    model.get_model().config.focus_layers = np.array([3,16])
+    model.get_model().config.focus_layers = np.array([3, 8, 16])
+    model.get_model().config.smooth_forward_segments = np.array([4, 2, 1])
     model.get_model().config.focus_llm = True
     model.get_model().config.pos_ids = True
     model.get_model().config.individual_pos_ids = True
     model.get_model().config.segment_pruning = True
-    model.get_model().config.use_cpu = False
+    model.get_model().config.use_cpu = True
     model.get_model().config.use_sequential = True
     model.get_model().config.plot_sys_user_prompt_sim = False
     # model.get_model().config.video_name = paths[0].split('/')[-1].removesuffix('.mp4')
     model.get_model().config.reforward = False
-    num_frames = 80
+    num_frames = 96
 
     if 'vicuna' in model_name.lower():
         # vicuna
@@ -92,7 +93,7 @@ def infer(model, video, instruct, tokenizer, do_sample=False, version='llama_2')
             modal_list=modals,
             do_sample=do_sample,
             temperature=0.2 if do_sample else 0.0,
-            max_new_tokens=10,
+            max_new_tokens=1024,
             use_cache=True,
             stopping_criteria=[stopping_criteria],
             pad_token_id=tokenizer.eos_token_id,
