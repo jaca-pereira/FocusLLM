@@ -1,4 +1,6 @@
+import numpy as np
 import torch
+from altair import layer
 from einops import einops
 from transformers import MistralModel, MistralConfig, DynamicCache, Cache
 from typing import Optional, Union, Tuple, List
@@ -19,6 +21,187 @@ class FocusLLMModel(MistralModel):
     def __init__(self, config: MistralConfig):
         super().__init__(config)
         self.last_attention = None
+
+    def process_attention_scores(self, attention_scores, topk_ratio=None, smooth_forward_segments=0):
+        """Process attention scores to obtain top-k or bottom-k indices."""
+        if topk_ratio is not None:
+            # Get bottom-k indices for segment pruning
+            ratio = int(self.image_video_tokens * topk_ratio)
+            indices = attention_scores.topk(ratio, largest=False, dim=-1).indices.sort(dim=-1).values
+        else:
+            indices = [chunk.flatten().topk(self.image_video_tokens, largest=True, dim=-1).indices.sort(dim=-1).values
+                       for chunk in attention_scores.chunk(smooth_forward_segments)]
+        return indices
+
+    def update_hidden_states(self, hidden_states, topk_idx):
+        """Update hidden states with selected image/video tokens."""
+        hidden_states = [chunk for chunk in hidden_states.chunk(len(topk_idx))]
+        for i, idx in enumerate(topk_idx):
+            hidden_states_image_or_video = hidden_states[i][:, self.modal_token_index:self.modal_token_index + self.image_video_tokens, :]
+            hidden_states_image_or_video = einops.rearrange(hidden_states_image_or_video, 'b n d -> 1 (b n) d')[:, idx]
+            hidden_states[i] = torch.cat(
+                (
+                    hidden_states[i][0:1, :self.modal_token_index, :],
+                    hidden_states_image_or_video,
+                    hidden_states[i][0:1, self.modal_token_index + self.image_video_tokens:, :]
+                ), dim=-2)
+        return torch.cat(hidden_states) if len(hidden_states) > 1 else hidden_states[0]
+
+    def update_past_key_values(self, past_key_values, topk_idx):
+        """Update past key and value caches for the selected image/video tokens."""
+        if isinstance(past_key_values, DynamicCache):
+            is_cache = True
+            new_past_key_values = []
+            for i in range(len(past_key_values.key_cache[0])):
+                new_past_key_values.append(DynamicCache())
+                for layer_idx in range(len(past_key_values.key_cache)):
+                    new_past_key_values[i].key_cache.append(
+                        past_key_values.key_cache[layer_idx][i:i+1])
+                    new_past_key_values[i].value_cache.append(
+                        past_key_values.value_cache[layer_idx][i:i+1])
+            past_key_values = new_past_key_values
+
+        else:
+            is_cache = False
+        chunks = [len(chunk) for chunk in torch.ones((len(past_key_values))).chunk(len(topk_idx))]
+        chunks = [0] + torch.cumsum(torch.tensor(chunks), dim=0).tolist()
+        past_key_values = [past_key_values[chunks[i]:chunks[i + 1]] for i in range(len(chunks) - 1)]
+
+        for i, past_key_values_i in enumerate(past_key_values):
+            key_cache_img_vid = [None] * len(past_key_values_i[0].key_cache)
+            value_cache_img_vid = [None] * len(past_key_values_i[0].value_cache)
+            for layer_idx in range(len(past_key_values_i[0].key_cache)):
+                key_cache_img_vid[layer_idx] = past_key_values_i[0].key_cache[layer_idx][..., self.modal_token_index:self.modal_token_index + self.image_video_tokens, :]
+                value_cache_img_vid[layer_idx] = past_key_values_i[0].value_cache[layer_idx][..., self.modal_token_index:self.modal_token_index + self.image_video_tokens, :]
+                for past_key_values_j in past_key_values_i[1:]:
+                    key_cache_img_vid[layer_idx] = torch.cat(
+                        (
+                            key_cache_img_vid[layer_idx],
+                            past_key_values_j.key_cache[layer_idx][..., self.modal_token_index:self.modal_token_index + self.image_video_tokens, :]
+                        ),
+                        dim=-2
+                    )
+                    value_cache_img_vid[layer_idx] = torch.cat(
+                        (
+                            value_cache_img_vid[layer_idx],
+                            past_key_values_j.value_cache[layer_idx][..., self.modal_token_index:self.modal_token_index + self.image_video_tokens, :]
+                        ),
+                        dim=-2
+                    )
+
+                key_cache_img_vid[layer_idx] = key_cache_img_vid[layer_idx][..., topk_idx[i], :]
+                value_cache_img_vid[layer_idx] = value_cache_img_vid[layer_idx][..., topk_idx[i], :]
+                key_cache_img_vid[layer_idx] = torch.cat(
+                    (
+                        past_key_values_i[0].key_cache[layer_idx][..., :self.modal_token_index, :],
+                        key_cache_img_vid[layer_idx],
+                        past_key_values_i[0].key_cache[layer_idx][..., self.modal_token_index + self.image_video_tokens:, :]
+                    ),
+                    dim=-2
+                )
+                value_cache_img_vid[layer_idx] = torch.cat(
+                    (
+                        past_key_values_i[0].value_cache[layer_idx][..., :self.modal_token_index, :],
+                        value_cache_img_vid[layer_idx],
+                        past_key_values_i[0].value_cache[layer_idx][..., self.modal_token_index + self.image_video_tokens:, :]
+                    ),
+                    dim=-2
+                )
+            past_key_values[i] = DynamicCache()
+            past_key_values[i].key_cache = key_cache_img_vid
+            past_key_values[i].value_cache = value_cache_img_vid
+
+        if is_cache:
+            new_past_key_values = DynamicCache()
+            new_past_key_values.key_cache = [torch.cat([past_key_values[j].key_cache[i] for j in range(len(past_key_values))]) for i in range(len(past_key_values[0].key_cache))]
+            new_past_key_values.value_cache = [torch.cat([past_key_values[j].value_cache[i] for j in range(len(past_key_values))]) for i in range(len(past_key_values[0].value_cache))]
+            past_key_values = new_past_key_values
+            del new_past_key_values
+        del key_cache_img_vid, value_cache_img_vid
+        return past_key_values
+
+    def process_layer(self, decoder_layer, hidden_states, attention_mask, position_ids, past_key_values, layer_idx,
+                      device, output_attentions, output_hidden_states, use_cache):
+        """Process a single decoder layer, updating hidden states and caching."""
+        if self.config.use_sequential:
+            # Sequential processing for each hidden state slice
+            past_key_values = [DynamicCache() for _ in range(len(hidden_states))] if isinstance(past_key_values, DynamicCache) else past_key_values
+            layer_outputs = [decoder_layer(hidden_states[i].unsqueeze(0).to(device),
+                                           attention_mask[i].unsqueeze(0).to(device),
+                                           position_ids[i].unsqueeze(0).to(device), past_key_values[i],
+                                           output_attentions=output_attentions, output_hidden_states=output_hidden_states,
+                                           use_cache=use_cache) for i in range(len(hidden_states))]
+            hidden_states = torch.cat([lo[0].to('cpu' if self.config.use_cpu else None) for lo in layer_outputs], dim=0)
+            last_attention = torch.cat([lo[1].to('cpu' if self.config.use_cpu else None) for lo in layer_outputs],
+                                                dim=0) if layer_idx in self.config.focus_layers - 1 else None
+            return hidden_states, last_attention, past_key_values
+        else:
+            # Parallel processing
+            layer_outputs = decoder_layer(hidden_states, attention_mask=attention_mask,
+                                          position_ids=position_ids, past_key_value=past_key_values,
+                                          output_attentions=output_attentions, use_cache=use_cache)
+            last_attention = layer_outputs[1] if layer_idx in self.config.focus_layers - 1 else None
+            return layer_outputs[0], last_attention, past_key_values
+
+    def focus_llm_forward(self, hidden_states, attention_mask, position_ids, inputs_embeds, past_key_values, device, output_attentions, output_hidden_states, use_cache):
+        """Reimplementation of the forward pass for Mistral LLM with focus on efficiency."""
+        seq_length = hidden_states.shape[1]
+        if self.config.focus_llm and seq_length > 1:
+            for decoder_layer in self.layers:
+                layer_idx = decoder_layer.self_attn.layer_idx
+                if layer_idx in self.config.focus_layers:
+                    if self.config.plot_sys_user_prompt_sim:
+                        hidden_states_system = hidden_states[..., :self.modal_token_index, :]
+                        hidden_states_user = hidden_states[..., self.modal_token_index + self.image_video_tokens:, :]
+                        hidden_states_image_video = hidden_states[...,
+                                                    self.modal_token_index:self.modal_token_index + self.image_video_tokens,
+                                                    :]
+                        plot_sim_and_tsne(hidden_states_system, video_name=self.config.video_name, name="system",
+                                          layer_num=layer_idx, frame_num=seq_length * NUM_FRAMES)
+                        plot_sim_and_tsne(hidden_states_user, video_name=self.config.video_name, name="user",
+                                          layer_num=layer_idx, frame_num=seq_length * NUM_FRAMES)
+                        plot_sim_and_tsne(hidden_states_image_video, video_name=self.config.video_name, name="video",
+                                          layer_num=layer_idx, frame_num=seq_length * NUM_FRAMES)
+
+                    image_attention_score = last_attention.mean(dim=1)[..., -1,
+                                            self.modal_token_index:self.modal_token_index + self.image_video_tokens]
+
+                    if not self.config.segment_pruning and layer_idx == self.config.focus_layers[-1]:
+                        bottom_attention_rank_index = self.process_attention_scores(image_attention_score,
+                                                                               topk_ratio=self.config.ratio)
+                        attention_mask[..., bottom_attention_rank_index] = attention_mask[0, 0, 0, -1].item()
+                        attention_mask[..., bottom_attention_rank_index, :] = attention_mask[0, 0, 0, -1].item()
+                        if self.config.reforward:
+                            hidden_states = inputs_embeds
+                            past_key_values = DynamicCache()
+                        position_ids = position_ids[0:1]
+                        break
+                    else:
+                        smooth_forward_segments = \
+                        self.config.smooth_forward_segments[np.where(self.config.focus_layers == layer_idx)][
+                            0]
+                        topk_idx = self.process_attention_scores(image_attention_score,
+                                                                 smooth_forward_segments=smooth_forward_segments)
+                        if layer_idx == self.config.focus_layers[-1] and self.config.reforward:
+                            hidden_states = self.update_hidden_states(inputs_embeds, topk_idx)
+                            past_key_values = DynamicCache()
+                            attention_mask = attention_mask[:1]
+                            position_ids = position_ids[:1]
+                            break
+                        else:
+                            hidden_states = self.update_hidden_states(hidden_states, topk_idx)
+                            past_key_values = self.update_past_key_values(past_key_values, topk_idx)
+                            attention_mask = attention_mask[:len(hidden_states)]
+                            position_ids = position_ids[:len(hidden_states)]
+                            if layer_idx == self.config.focus_layers[-1]:
+                                if not isinstance(past_key_values, DynamicCache):
+                                    past_key_values = past_key_values[0]
+                                break
+
+                # Process each layer and update hidden states and attention if required
+                hidden_states, last_attention, past_key_values = self.process_layer(decoder_layer, hidden_states, attention_mask, position_ids, past_key_values, layer_idx, device, output_attentions, output_hidden_states, use_cache)
+
+        return hidden_states.to(device), attention_mask.to(device), position_ids.to(device), past_key_values
 
     def forward(
             self,
@@ -121,302 +304,15 @@ class FocusLLMModel(MistralModel):
         next_decoder_cache = None
 
         ################ new forward pass loop for getting best idx ###########################
-
-        if self.config.focus_llm and seq_length > 1:
-            for _, decoder_layer in enumerate(self.layers):
-                if decoder_layer.self_attn.layer_idx in self.config.focus_layers:
-                    if self.config.plot_sys_user_prompt_sim:
-                        hidden_states_system = hidden_states[..., :self.modal_token_index, :]
-                        hidden_states_user = hidden_states[..., self.modal_token_index + self.image_video_tokens:, :]
-                        hidden_states_image_or_video = hidden_states[...,
-                                                       self.modal_token_index:self.modal_token_index + self.image_video_tokens,
-                                                       :]
-                        plot_sim_and_tsne(hidden_states_system, video_name=self.config.video_name, name="system",
-                                          layer_num=decoder_layer.self_attn.layer_idx,
-                                          frame_num=len(hidden_states) * NUM_FRAMES)
-                        plot_sim_and_tsne(hidden_states_user, video_name=self.config.video_name, name="user",
-                                          layer_num=decoder_layer.self_attn.layer_idx,
-                                          frame_num=len(hidden_states) * NUM_FRAMES)
-                        plot_sim_and_tsne(hidden_states_image_or_video, video_name=self.config.video_name, name="video",
-                                          layer_num=decoder_layer.self_attn.layer_idx,
-                                          frame_num=len(hidden_states) * NUM_FRAMES)
-
-                    image_attention_score = self.last_attention.mean(dim=1)[..., -1,
-                                            self.modal_token_index:self.modal_token_index + self.image_video_tokens]
-                    if not self.config.segment_pruning:
-                        ratio = int(self.image_video_tokens * self.config.ratio)
-                        bottom_attention_rank_index = image_attention_score.topk(ratio, largest=False,
-                                                                                 dim=-1).indices + self.modal_token_index
-                        bottom_attention_rank_index = bottom_attention_rank_index.sort(dim=-1).values
-                    else:
-                        if decoder_layer.self_attn.layer_idx == self.config.focus_layers[-1]:
-                            image_attention_score = image_attention_score.flatten()
-                            image_attention_score = image_attention_score / image_attention_score.norm(dim=0,
-                                                                                                       keepdim=True)
-                            topk_idx = image_attention_score.topk(self.image_video_tokens,
-                                                                  largest=True).indices.sort().values
-                        else:
-                            image_attention_score_half_1 = image_attention_score[
-                                                           :len(image_attention_score) // 2].flatten()
-                            image_attention_score_half_1 = image_attention_score_half_1 / image_attention_score_half_1.norm(
-                                dim=0, keepdim=True)
-                            topk_idx_half_1 = image_attention_score_half_1.topk(self.image_video_tokens,
-                                                                                largest=True).indices.sort().values
-                            image_attention_score_half_2 = image_attention_score[
-                                                           len(image_attention_score) // 2:].flatten()
-                            image_attention_score_half_2 = image_attention_score_half_2 / image_attention_score_half_2.norm(
-                                dim=0, keepdim=True)
-                            topk_idx_half_2 = image_attention_score_half_2.topk(self.image_video_tokens,
-                                                                                largest=True).indices.sort().values
-
-                if decoder_layer.self_attn.layer_idx == self.config.focus_layers[-1]:
-                    if not self.config.segment_pruning:
-                        attention_mask[..., bottom_attention_rank_index] = attention_mask[0, 0, 0, -1].item()
-                        attention_mask[..., bottom_attention_rank_index, :] = attention_mask[0, 0, 0, -1].item()
-                        if self.config.reforward:
-                            hidden_states = inputs_embeds
-                            past_key_values = DynamicCache()
-                    else:
-                        attention_mask = attention_mask[0].unsqueeze(0).to(device)
-                        position_ids = position_ids[0].unsqueeze(0).to(device)
-                        if self.config.reforward:
-                            hidden_states_image_or_video = einops.rearrange(inputs_embeds[...,
-                                                                            self.modal_token_index:self.modal_token_index + self.image_video_tokens,
-                                                                            :], 'b h d -> (b h) d')[topk_idx]
-                            hidden_states = torch.cat((inputs_embeds[0, :self.modal_token_index, :],
-                                                       hidden_states_image_or_video, inputs_embeds[0,
-                                                                                     self.modal_token_index + self.image_video_tokens:,
-                                                                                     :]), dim=0).unsqueeze(0).to(device)
-                            past_key_values = DynamicCache()
-                        else:
-                            hidden_states_image_or_video = einops.rearrange(hidden_states[...,
-                                                                            self.modal_token_index:self.modal_token_index + self.image_video_tokens,
-                                                                            :], 'b h d -> (b h) d')[topk_idx]
-                            hidden_states = torch.cat((hidden_states[0, :self.modal_token_index, :],
-                                                       hidden_states_image_or_video, hidden_states[0,
-                                                                                     self.modal_token_index + self.image_video_tokens:,
-                                                                                     :]), dim=0).unsqueeze(0).to(device)
-                            if isinstance(past_key_values, DynamicCache):
-                                num_layers = len(past_key_values.key_cache)
-                            else:
-                                num_layers = len(past_key_values[0].key_cache)
-                            all_key_cache = [[] for _ in range(num_layers)]
-                            all_value_cache = [[] for _ in range(num_layers)]
-
-                            if isinstance(past_key_values, list):
-                                for segment in past_key_values:
-                                    for layer_idx in range(num_layers):
-                                        all_key_cache[layer_idx].append(segment.key_cache[layer_idx])
-                                        all_value_cache[layer_idx].append(segment.value_cache[layer_idx])
-                                all_value_cache = [torch.cat(all_value_cache[layer_idx], dim=0) for layer_idx in range(num_layers)]
-                                all_key_cache = [torch.cat(all_key_cache[layer_idx], dim=0) for layer_idx in range(num_layers)]
-                            else:
-                                all_key_cache = past_key_values.key_cache
-                                all_value_cache = past_key_values.value_cache
-
-                            for layer_idx in range(num_layers):
-                                past_key_values_image_video = einops.rearrange(all_key_cache[layer_idx][...,
-                                                                               self.modal_token_index:self.modal_token_index + self.image_video_tokens,
-                                                                               :], 'b m n d -> (b n) m d')[topk_idx]
-                                past_key_values_image_video = einops.rearrange(past_key_values_image_video,
-                                                                               'n m d -> m n d')
-                                all_key_cache[layer_idx] = torch.cat((all_key_cache[layer_idx][0, :,
-                                                                      :self.modal_token_index, :].unsqueeze(0),
-                                                                      past_key_values_image_video.unsqueeze(0),
-                                                                      all_key_cache[layer_idx][0, :,
-                                                                      self.modal_token_index + self.image_video_tokens:,
-                                                                      :].unsqueeze(0)), dim=2)
-
-                                past_value_values_image_video = einops.rearrange(all_value_cache[layer_idx][...,
-                                                                                 self.modal_token_index:self.modal_token_index + self.image_video_tokens,
-                                                                                 :], 'b m n d -> (b n) m d')[topk_idx]
-                                past_value_values_image_video = einops.rearrange(past_value_values_image_video,
-                                                                                 'n m d -> m n d')
-                                all_value_cache[layer_idx] = torch.cat((all_value_cache[layer_idx][0, :,
-                                                                        :self.modal_token_index, :].unsqueeze(0),
-                                                                        past_value_values_image_video.unsqueeze(0),
-                                                                        all_value_cache[layer_idx][0, :,
-                                                                        self.modal_token_index + self.image_video_tokens:,
-                                                                        :].unsqueeze(0)), dim=2)
-                            past_key_values = DynamicCache()
-                            past_key_values.key_cache = all_key_cache
-                            past_key_values.value_cache = all_value_cache
-                    break
-                elif self.config.segment_pruning and decoder_layer.self_attn.layer_idx in self.config.focus_layers[:-1]:
-                    hidden_states_image_or_video_half_1 = einops.rearrange(hidden_states[:len(hidden_states) // 2,
-                                                                           self.modal_token_index:self.modal_token_index + self.image_video_tokens,
-                                                                           :], 'b h d -> (b h) d')[topk_idx_half_1]
-                    hidden_states_image_or_video_half_2 = einops.rearrange(hidden_states[len(hidden_states) // 2:,
-                                                                           self.modal_token_index:self.modal_token_index + self.image_video_tokens,
-                                                                           :], 'b h d -> (b h) d')[topk_idx_half_2]
-                    hidden_states_half_1 = torch.cat((hidden_states[0, :self.modal_token_index, :].unsqueeze(0),
-                                                      hidden_states_image_or_video_half_1.unsqueeze(0), hidden_states[0,
-                                                                                                        self.modal_token_index + self.image_video_tokens:,
-                                                                                                        :].unsqueeze(
-                        0)), dim=1).to(device)
-                    hidden_states_half_2 = torch.cat((hidden_states[len(hidden_states) // 2, :self.modal_token_index,
-                                                      :].unsqueeze(0), hidden_states_image_or_video_half_2.unsqueeze(0),
-                                                      hidden_states[len(hidden_states) // 2,
-                                                      self.modal_token_index + self.image_video_tokens:, :].unsqueeze(
-                                                          0)), dim=1).to(device)
-                    hidden_states = torch.cat((hidden_states_half_1, hidden_states_half_2), dim=0)
-                    if isinstance(past_key_values, list):
-                        num_layers = len(past_key_values[0].key_cache)
-                        all_key_cache = [[[] for _ in range(num_layers)] for _ in range(2)]
-                        all_value_cache = [[[] for _ in range(num_layers)] for _ in range(2)]
-                        for segment in past_key_values[:len(past_key_values) // 2]:
-                            for layer_idx in range(num_layers):
-                                all_key_cache[0][layer_idx].append(segment.key_cache[layer_idx])
-                                all_value_cache[0][layer_idx].append(segment.value_cache[layer_idx])
-                        all_value_cache_half_1 = [torch.cat(all_value_cache[0][layer_idx], dim=0) for layer_idx in
-                                           range(num_layers)]
-                        all_key_cache_half_1 = [torch.cat(all_key_cache[0][layer_idx], dim=0) for layer_idx in range(num_layers)]
-                        for segment in past_key_values[len(past_key_values) // 2:]:
-                            for layer_idx in range(num_layers):
-                                all_key_cache[1][layer_idx].append(segment.key_cache[layer_idx])
-                                all_value_cache[1][layer_idx].append(segment.value_cache[layer_idx])
-                        all_value_cache_half_2 = [torch.cat(all_value_cache[1][layer_idx], dim=0) for layer_idx in
-                                                  range(num_layers)]
-                        all_key_cache_half_2 = [torch.cat(all_key_cache[1][layer_idx], dim=0) for layer_idx in
-                                                range(num_layers)]
-                        all_key_cache = [all_key_cache_half_1, all_key_cache_half_2]
-                        all_value_cache = [all_value_cache_half_1, all_value_cache_half_2]
-                        for segment_idx in range(2):
-                            for layer_idx in range(num_layers):
-                                all_key_cache_layer_idx = all_key_cache[segment_idx][layer_idx]
-                                all_value_cache_layer_idx = all_value_cache[segment_idx][layer_idx]
-                                past_key_values_image_video = einops.rearrange(all_key_cache_layer_idx[...,
-                                                                               self.modal_token_index:self.modal_token_index + self.image_video_tokens,
-                                                                               :], 'b m n d -> (b n) m d')[
-                                    topk_idx_half_1 if segment_idx == 0 else topk_idx_half_2]
-                                past_key_values_image_video = einops.rearrange(past_key_values_image_video,
-                                                                               'n m d -> m n d')
-                                all_key_cache_layer_idx = torch.cat((all_key_cache_layer_idx[0, :,
-                                                                     :self.modal_token_index, :].unsqueeze(0),
-                                                                     past_key_values_image_video.unsqueeze(0),
-                                                                     all_key_cache_layer_idx[0, :,
-                                                                     self.modal_token_index + self.image_video_tokens:,
-                                                                     :].unsqueeze(0)), dim=2)
-
-                                past_value_values_image_video = einops.rearrange(all_value_cache_layer_idx[...,
-                                                                                 self.modal_token_index:self.modal_token_index + self.image_video_tokens,
-                                                                                 :], 'b m n d -> (b n) m d')[
-                                    topk_idx_half_1 if segment_idx == 0 else topk_idx_half_2]
-                                past_value_values_image_video = einops.rearrange(past_value_values_image_video,
-                                                                                 'n m d -> m n d')
-                                all_value_cache_layer_idx = torch.cat((all_value_cache_layer_idx[0, :,
-                                                                       :self.modal_token_index, :].unsqueeze(0),
-                                                                       past_value_values_image_video.unsqueeze(0),
-                                                                       all_value_cache_layer_idx[0, :,
-                                                                       self.modal_token_index + self.image_video_tokens:,
-                                                                       :].unsqueeze(0)), dim=2)
-                                all_key_cache[segment_idx][layer_idx] = all_key_cache_layer_idx
-                                all_value_cache[segment_idx][layer_idx] = all_value_cache_layer_idx
-                        past_key_values = [DynamicCache() for _ in range(2)]
-                        for segment_idx in range(2):
-                            past_key_values[segment_idx].key_cache = all_key_cache[segment_idx]
-                            past_key_values[segment_idx].value_cache = all_value_cache[segment_idx]
-                    else:
-                        num_layers = len(past_key_values.key_cache)
-                        all_key_cache = past_key_values.key_cache
-                        all_value_cache = past_key_values.value_cache
-
-                        for layer_idx in range(num_layers):
-                            all_key_cache_layer_idx_half_1 = all_key_cache[layer_idx][:len(all_key_cache[layer_idx]) // 2]
-                            past_key_values_image_video_half_1 = einops.rearrange(all_key_cache_layer_idx_half_1[...,
-                                                                                  self.modal_token_index:self.modal_token_index + self.image_video_tokens,
-                                                                                  :], 'b m n d -> (b n) m d')[
-                                topk_idx_half_1]
-                            past_key_values_image_video_half_1 = einops.rearrange(past_key_values_image_video_half_1,
-                                                                                  'n m d -> m n d')
-                            all_key_cache_layer_idx_half_1 = torch.cat((all_key_cache_layer_idx_half_1[0, :,
-                                                                        :self.modal_token_index, :].unsqueeze(0),
-                                                                        past_key_values_image_video_half_1.unsqueeze(0),
-                                                                        all_key_cache_layer_idx_half_1[0, :,
-                                                                        self.modal_token_index + self.image_video_tokens:,
-                                                                        :].unsqueeze(0)), dim=2)
-
-                            all_key_cache_layer_idx_half_2 = all_key_cache[layer_idx][len(all_key_cache[layer_idx]) // 2:]
-                            past_key_values_image_video_half_2 = einops.rearrange(all_key_cache_layer_idx_half_2[...,
-                                                                                  self.modal_token_index:self.modal_token_index + self.image_video_tokens,
-                                                                                  :], 'b m n d -> (b n) m d')[
-                                topk_idx_half_2]
-                            past_key_values_image_video_half_2 = einops.rearrange(past_key_values_image_video_half_2,
-                                                                                  'n m d -> m n d')
-                            all_key_cache_layer_idx_half_2 = torch.cat((all_key_cache_layer_idx_half_2[0, :,
-                                                                        :self.modal_token_index, :].unsqueeze(0),
-                                                                        past_key_values_image_video_half_2.unsqueeze(0),
-                                                                        all_key_cache_layer_idx_half_2[0, :,
-                                                                        self.modal_token_index + self.image_video_tokens:,
-                                                                        :].unsqueeze(0)), dim=2)
-                            all_key_cache[layer_idx] = torch.cat(
-                                (all_key_cache_layer_idx_half_1, all_key_cache_layer_idx_half_2), dim=0)
-
-                            all_value_cache_layer_idx_half_1 = all_value_cache[layer_idx][
-                                                               :len(all_value_cache[layer_idx]) // 2]
-                            past_value_values_image_video_half_1 = einops.rearrange(all_value_cache_layer_idx_half_1[...,
-                                                                                    self.modal_token_index:self.modal_token_index + self.image_video_tokens,
-                                                                                    :], 'b m n d -> (b n) m d')[
-                                topk_idx_half_1]
-                            past_value_values_image_video_half_1 = einops.rearrange(past_value_values_image_video_half_1,
-                                                                                    'n m d -> m n d')
-                            all_value_cache_layer_idx_half_1 = torch.cat((all_value_cache_layer_idx_half_1[0, :,
-                                                                          :self.modal_token_index, :].unsqueeze(0),
-                                                                          past_value_values_image_video_half_1.unsqueeze(0),
-                                                                          all_value_cache_layer_idx_half_1[0, :,
-                                                                          self.modal_token_index + self.image_video_tokens:,
-                                                                          :].unsqueeze(0)), dim=2)
-
-                            all_value_cache_layer_idx_half_2 = all_value_cache[layer_idx][
-                                                               len(all_value_cache[layer_idx]) // 2:]
-                            past_value_values_image_video_half_2 = einops.rearrange(all_value_cache_layer_idx_half_2[...,
-                                                                                    self.modal_token_index:self.modal_token_index + self.image_video_tokens,
-                                                                                    :], 'b m n d -> (b n) m d')[
-                                topk_idx_half_2]
-                            past_value_values_image_video_half_2 = einops.rearrange(past_value_values_image_video_half_2,
-                                                                                    'n m d -> m n d')
-                            all_value_cache_layer_idx_half_2 = torch.cat((all_value_cache_layer_idx_half_2[0, :,
-                                                                          :self.modal_token_index, :].unsqueeze(0),
-                                                                          past_value_values_image_video_half_2.unsqueeze(0),
-                                                                          all_value_cache_layer_idx_half_2[0, :,
-                                                                          self.modal_token_index + self.image_video_tokens:,
-                                                                          :].unsqueeze(0)), dim=2)
-                            all_value_cache[layer_idx] = torch.cat(
-                                (all_value_cache_layer_idx_half_1, all_value_cache_layer_idx_half_2), dim=0)
-
-
-                        past_key_values = DynamicCache()
-                        past_key_values.key_cache = all_key_cache
-                        past_key_values.value_cache = all_value_cache
-
-                    attention_mask = attention_mask[:len(hidden_states)].to(device)
-                    position_ids = position_ids[:len(hidden_states)].to(device)
-
-
-                if self.config.segment_pruning and self.config.use_sequential:
-                    if decoder_layer.self_attn.layer_idx == 0:
-                        device = inputs_embeds.device if self.config.use_cpu else None
-                        if self.config.use_cpu:
-                            hidden_states, attention_mask, position_ids, inputs_embeds = hidden_states.cpu(), attention_mask.cpu(), position_ids.cpu(), inputs_embeds.cpu()
-                    if not past_key_values:
-                        past_key_values = [copy.deepcopy(past_key_values) for _ in range(inputs_embeds.shape[0])]
-                    layer_outputs = [decoder_layer(hidden_states[i].unsqueeze(0).to(device),
-                                                   attention_mask[i].unsqueeze(0).to(device),
-                                                   position_ids[i].unsqueeze(0).to(device), past_key_values[i],
-                                                   output_attentions=output_attentions, use_cache=use_cache) for i in
-                                     range(len(hidden_states))]
-                    hidden_states = torch.cat(
-                        [lo[0].to('cpu' if self.config.use_cpu else None) for lo in layer_outputs], dim=0)
-                    if decoder_layer.self_attn.layer_idx in self.config.focus_layers - 1:
-                        self.last_attention = torch.cat(
-                            [lo[1].to('cpu' if self.config.use_cpu else None) for lo in layer_outputs], dim=0)
-                else:
-                    layer_outputs = decoder_layer(hidden_states, attention_mask=attention_mask,
-                                                  position_ids=position_ids, past_key_value=past_key_values,
-                                                  output_attentions=output_attentions, use_cache=use_cache)
-                    hidden_states = layer_outputs[0]
-                    if decoder_layer.self_attn.layer_idx in self.config.focus_layers - 1:
-                        self.last_attention = layer_outputs[1]
+        hidden_states, attention_mask, position_ids, past_key_values = self.focus_llm_forward(hidden_states,
+                                                                                               attention_mask,
+                                                                                               position_ids,
+                                                                                               inputs_embeds,
+                                                                                               past_key_values,
+                                                                                               hidden_states.device if self.config.use_cpu else None,
+                                                                                               output_attentions,
+                                                                                               output_hidden_states,
+                                                                                               use_cache)
 
         ##########################################################################################
         iterated_layers = self.layers[self.config.focus_layers[-1]:] if not self.config.reforward and self.config.focus_llm and seq_length > 1 else self.layers
