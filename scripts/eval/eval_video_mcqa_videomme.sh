@@ -79,18 +79,26 @@ if [ ! -f "$output_file" ]; then
 fi
 
 
-python videollama2/eval/eval_video_mcqa_videomme.py \
+python videollama2/eval/eval_video_mcqa_videomme_2.py \
     --results_file $output_file \
     --video_duration_type "short,medium,long" \
     --return_categories_accuracy \
     --return_sub_categories_accuracy \
     --return_task_types_accuracy \
+    --focus_layers $focus_layers \
+    --focus_segments $focus_segments \
+    --reforward $reforward \
+    --num_frames $nr_frames \
     #--skip_missing \
 
-python videollama2/eval/eval_video_mcqa_videomme.py \
+python videollama2/eval/eval_video_mcqa_videomme_2.py \
     --results_file $output_sub_file \
     --video_duration_type "short,medium,long" \
     --return_categories_accuracy \
     --return_sub_categories_accuracy \
     --return_task_types_accuracy \
+    --focus_layers $focus_layers \
+    --focus_segments $focus_segments \
+    --reforward $reforward \
+    --num_frames $nr_frames \
     #--skip_missing \
