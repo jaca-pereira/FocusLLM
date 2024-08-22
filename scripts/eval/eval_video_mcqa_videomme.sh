@@ -20,6 +20,18 @@ if [ ! -f "$output_file" ] || [ $(cat "$output_file" | wc -l) -eq 0 ]; then
     rm -f ${OUTPUT_DIR}/videomme/answers/${CKPT_NAME}/*.json
 fi
 
+# Parse arguments
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --focus_layers) focus_layers="$2"; shift ;;
+        --focus_segments) focus_segments="$2"; shift ;;
+        --reforward) reforward="$2"; shift ;;
+        --nr_frames) nr_frames="$2"; shift ;;
+        *) echo "Unknown parameter passed: $1"; exit 1 ;;
+    esac
+    shift
+done
+
 
 if [ ! -f "$output_file" ]; then
     for IDX in $(seq 0 $((CHUNKS-1))); do
@@ -73,7 +85,7 @@ python videollama2/eval/eval_video_mcqa_videomme.py \
     --return_categories_accuracy \
     --return_sub_categories_accuracy \
     --return_task_types_accuracy \
-    --skip_missing \
+    #--skip_missing \
 
 python videollama2/eval/eval_video_mcqa_videomme.py \
     --results_file $output_sub_file \
@@ -81,4 +93,4 @@ python videollama2/eval/eval_video_mcqa_videomme.py \
     --return_categories_accuracy \
     --return_sub_categories_accuracy \
     --return_task_types_accuracy \
-    --skip_missing \
+    #--skip_missing \

@@ -3,6 +3,8 @@ from functools import partial
 
 import numpy as np
 import torch
+from sympy.strategies.core import switch
+from timm.layers import swish
 
 from .model import Videollama2LlamaForCausalLM, Videollama2MistralForCausalLM, Videollama2MixtralForCausalLM
 from .model.builder import load_pretrained_model
@@ -11,7 +13,7 @@ from .mm_utils import process_video, tokenizer_MMODAL_token, get_model_name_from
 from .constants import NUM_FRAMES, DEFAULT_MMODAL_TOKEN, DEFAULT_MMODAL_START_TOKEN, DEFAULT_MMODAL_END_TOKEN, MMODAL_TOKEN_INDEX
 
 
-def model_init(model_path=None):
+def model_init(model_path=None, focus_layers=None, smooth_forward_segments=None, reforward=False, nr_frames=NUM_FRAMES):
     model_path = "DAMO-NLP-SG/VideoLLaMA2-7B" if model_path is None else model_path
     model_name = get_model_name_from_path(model_path)
     tokenizer, model, processor, context_len = load_pretrained_model(model_path, None, model_name)
@@ -20,19 +22,30 @@ def model_init(model_path=None):
         tokenizer.pad_token = tokenizer.unk_token
 
     # ADD NEW CONFIG OPTIONS
-    model.get_model().config.ratio = 0.5
-    model.get_model().config.focus_layers = np.array([3, 8, 16])
-    model.get_model().config.smooth_forward_segments = np.array([4, 2, 1])
-    model.get_model().config.focus_llm = True
+    # fixed config options
+    #model.get_model().config.ratio = 0.5
+    model.get_model().config.segment_pruning = True
+    model.get_model().config.segment_length = 16
     model.get_model().config.pos_ids = True
     model.get_model().config.individual_pos_ids = True
-    model.get_model().config.segment_pruning = True
-    model.get_model().config.use_cpu = True
-    model.get_model().config.use_sequential = True
     model.get_model().config.plot_sys_user_prompt_sim = False
     # model.get_model().config.video_name = paths[0].split('/')[-1].removesuffix('.mp4')
-    model.get_model().config.reforward = False
-    num_frames = 96
+
+    # variable config options
+    model.get_model().config.focus_layers = np.fromstring(focus_layers, sep=',', dtype=int)
+    model.get_model().config.smooth_forward_segments = np.fromstring(smooth_forward_segments, sep=',', dtype=int)
+    model.get_model().config.focus_llm = True
+    model.get_model().config.reforward = reforward
+    num_frames = nr_frames
+    if num_frames < 80:
+        model.get_model().config.use_cpu = False
+        model.get_model().config.use_sequential = False
+    elif num_frames < 96:
+        model.get_model().config.use_cpu = False
+        model.get_model().config.use_sequential = True
+    else:
+        model.get_model().config.use_cpu = True
+        model.get_model().config.use_sequential = True
 
     if 'vicuna' in model_name.lower():
         # vicuna

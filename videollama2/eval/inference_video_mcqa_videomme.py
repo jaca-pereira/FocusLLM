@@ -201,7 +201,7 @@ def videomme_dump(record, instruct, output):
 
 def run_inference(args):
     # Initialize the model
-    model, processor, tokenizer, version = model_init(args.model_path)
+    model, processor, tokenizer, version = model_init(args.model_path, args.focus_layers, args.focus_segments, args.reforward, args.nr_frames)
 
     answer_file = os.path.expanduser(args.answer_file)
     answer_sub_file = answer_file.replace('.json', '_sub.json')
@@ -268,7 +268,11 @@ if __name__ == "__main__":
     parser.add_argument("--chunk-idx", type=int, default=0)
     parser.add_argument("--device", type=str, required=False, default='cuda:0')
     parser.add_argument("--batch-size", type=int, default=1)
-    parser.add_argument("--num-workers", type=int, default=8)
+    parser.add_argument("--num-workers", type=int, default=0)
+    parser.add_argument('--focus_layers', help='Focus layers for the model.', required=True)
+    parser.add_argument('--focus_segments', help='Focus segments for the model.', required=True)
+    parser.add_argument('--reforward', help='Reforward parameter for the model.', required=True)
+    parser.add_argument('--nr_frames', help='Number of frames to process.', required=True)
     args = parser.parse_args()
 
     run_inference(args)
