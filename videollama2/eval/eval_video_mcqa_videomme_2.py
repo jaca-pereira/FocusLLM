@@ -95,7 +95,7 @@ def eval_your_results(
         focus_layers: Optional[str] = None,
         focus_segments: Optional[str] = None,
         selection_type: Optional[str] = None,
-        num_frames: Optional[int] = None
+        nr_frames: Optional[int] = None
 ):
 
     # Load your results
@@ -178,7 +178,7 @@ def eval_your_results(
 
         # Write the new row of results
         row = [
-            num_frames, focus_layers, focus_segments, selection_type,
+            nr_frames, focus_layers, focus_segments, selection_type,
             overall_results["Overall"]["w/o"], overall_results["Overall"]["w"],
             overall_results.get("Short", {}).get("w/o", 0), overall_results.get("Short", {}).get("w", 0),
             overall_results.get("Medium", {}).get("w/o", 0), overall_results.get("Medium", {}).get("w", 0),
@@ -195,7 +195,7 @@ if __name__ == "__main__":
     parser.add_argument("--focus_layers", type=str, required=True)
     parser.add_argument("--focus_segments", type=str, required=True)
     parser.add_argument("--selection_type", type=str, required=True)
-    parser.add_argument("--num_frames", type=int, required=True)
+    parser.add_argument("--nr_frames", type=int, required=True)
 
     args = parser.parse_args()
 
@@ -206,5 +206,5 @@ if __name__ == "__main__":
         focus_layers=args.focus_layers,
         focus_segments=args.focus_segments,
         selection_type=args.selection_type,
-        num_frames=args.num_frames
+        nr_frames=args.nr_frames
     )

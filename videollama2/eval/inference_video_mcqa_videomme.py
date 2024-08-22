@@ -12,6 +12,7 @@ import torch
 import pysubs2
 import numpy as np
 import pyarrow.parquet as pq
+from sympy.codegen.fnodes import array
 from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
 
@@ -269,10 +270,10 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, required=False, default='cuda:0')
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--num-workers", type=int, default=0)
-    parser.add_argument('--focus_layers', help='Focus layers for the model.', required=True)
-    parser.add_argument('--focus_segments', help='Focus segments for the model.', required=True)
-    parser.add_argument('--reforward', help='Reforward parameter for the model.', required=True)
-    parser.add_argument('--nr_frames', help='Number of frames to process.', required=True)
+    parser.add_argument('--focus_layers', help='Focus layers for the model.', required=True, type=str)
+    parser.add_argument('--focus_segments', help='Focus segments for the model.', required=True, type=str)
+    parser.add_argument('--reforward', help='Reforward parameter for the model.', required=True, type=bool)
+    parser.add_argument('--nr_frames', help='Number of frames to process.', required=True, type=int)
     args = parser.parse_args()
 
     run_inference(args)

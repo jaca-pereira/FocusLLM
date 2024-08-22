@@ -48,7 +48,7 @@ if [ ! -f "$output_file" ]; then
             --focus_layers $focus_layers \
             --focus_segments $focus_segments \
             --reforward $reforward \
-            --num_frames $nr_frames \
+            --nr_frames $nr_frames \
             &
     done
 
@@ -93,7 +93,7 @@ python videollama2/eval/eval_video_mcqa_videomme_2.py \
     --focus_layers $focus_layers \
     --focus_segments $focus_segments \
     --reforward $reforward \
-    --num_frames $nr_frames \
+    --nr_frames $nr_frames \
     #--skip_missing \
 
 python videollama2/eval/eval_video_mcqa_videomme_2.py \
@@ -105,5 +105,5 @@ python videollama2/eval/eval_video_mcqa_videomme_2.py \
     --focus_layers $focus_layers \
     --focus_segments $focus_segments \
     --reforward $reforward \
-    --num_frames $nr_frames \
+    --nr_frames $nr_frames \
     #--skip_missing \

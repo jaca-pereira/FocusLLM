@@ -35,7 +35,8 @@ def model_init(model_path=None, focus_layers=None, smooth_forward_segments=None,
     model.get_model().config.focus_layers = np.fromstring(focus_layers, sep=',', dtype=int)
     model.get_model().config.smooth_forward_segments = np.fromstring(smooth_forward_segments, sep=',', dtype=int)
     model.get_model().config.focus_llm = True
-    model.get_model().config.reforward = reforward
+    #get boolean value from string
+    model.get_model().config.reforward = True if reforward == 'true' else False
     num_frames = nr_frames
     if num_frames < 80:
         model.get_model().config.use_cpu = False
