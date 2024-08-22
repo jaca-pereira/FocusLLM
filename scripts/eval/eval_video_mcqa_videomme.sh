@@ -44,7 +44,12 @@ if [ ! -f "$output_file" ]; then
             --question-file ${EVAL_DATA_DIR}/videomme/test-00000-of-00001.parquet \
             --answer-file ${OUTPUT_DIR}/videomme/answers/${CKPT_NAME}/${CHUNKS}_${IDX}.json \
             --num-chunks $CHUNKS \
-            --chunk-idx $IDX &
+            --chunk-idx $IDX \
+            --focus_layers $focus_layers \
+            --focus_segments $focus_segments \
+            --reforward $reforward \
+            --num_frames $nr_frames \
+            &
     done
 
     wait
