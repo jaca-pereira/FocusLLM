@@ -8,7 +8,7 @@ echo $CONDA_DEFAULT_ENV
 
 cd ~/data/FocusLLM
 
-export 'PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512'
+export 'PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:1024'
 
 focus_layers_list=(
 "3" "16" "28" "3" "16" "28" \
@@ -45,5 +45,6 @@ nr_frames_list=(
 
 for i in {0..47}
 do
-    CUDA_VISIBLE_DEVICES=0,1,2 bash scripts/eval/eval_video_mcqa_videomme.sh --focus_layers "${focus_layers_list[i]}" --focus_segments "${focus_segments_list[i]}" --reforward "${reforward_list[i]}" --nr_frames "${nr_frames_list[i]}"
+    CUDA_VISIBLE_DEVICES=0,1,2,3 bash scripts/eval/eval_video_mcqa_videomme.sh --focus_layers "${focus_layers_list[i]}" --focus_segments "${focus_segments_list[i]}" --reforward "${reforward_list[i]}" --nr_frames "${nr_frames_list[i]}"
+    mv eval_output/videomme/ eval_output/videomme_${focus_layers_list[i]}_${focus_segments_list[i]}_${reforward_list[i]}_${nr_frames_list[i]}
 done

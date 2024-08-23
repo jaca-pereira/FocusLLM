@@ -99,25 +99,28 @@ def eval_your_results(
 ):
 
     # Load your results
-    with open(your_results_path, 'r') as f:
-        your_results = json.load(f)
+    your_results_path = your_results_path.split(",")
+    print(f"Loading your results from {your_results_path}")
+    your_results = []
+    for file in your_results_path:
+        with open(file, 'r') as f:
+            your_results.append(json.load(f))
 
     if isinstance(video_types, str):
         video_types = video_types.split(",")
 
-    q_type_dict = {}
-    overall_results = {}
+    row = []
+    for i in range(len(your_results)):
+        q_type_dict = {}
+        overall_results = {}
+        for video_type in video_types:
+            # Initialize dictionary for each video type with and without subtitles
+            q_type_dict[video_type] = {"w/o": {"correct": 0, "answered": 0}}
 
-    for video_type in video_types:
-        # Initialize dictionary for each video type with and without subtitles
-        q_type_dict[video_type] = {"w/o": {"correct": 0, "answered": 0},
-                                   "w": {"correct": 0, "answered": 0}}
+            # Filter results by duration and subtitle presence
+            your_results_video_type_wo = [item for item in your_results[i] if item["duration"] == video_type and not item.get("subtitles", False)]
 
-        # Filter results by duration and subtitle presence
-        your_results_video_type_wo = [item for item in your_results if item["duration"] == video_type and not item.get("subtitles", False)]
-        your_results_video_type_w = [item for item in your_results if item["duration"] == video_type and item.get("subtitles", False)]
-
-        for subtitle_type, results in [("w/o", your_results_video_type_wo), ("w", your_results_video_type_w)]:
+            subtitle_type, results = "w/o", your_results_video_type_wo
             if not skip_missing:
                 assert len(results) == 300, f"Number of files in {video_type} with subtitles {subtitle_type} is not 300. Check if there are missing files."
 
@@ -128,7 +131,6 @@ def eval_your_results(
                 questions = item["questions"]
 
                 for question in questions:
-                    q_type = question["task_type"]
 
                     # Get the ground truth and your response
                     gt_answer = question[gt_answer_key]
@@ -141,26 +143,33 @@ def eval_your_results(
                         q_type_dict[video_type][subtitle_type]["answered"] += 1
                         q_type_dict[video_type][subtitle_type]["correct"] += extraction == gt_answer
 
-        total_correct_wo = q_type_dict[video_type]["w/o"]["correct"]
-        total_answered_wo = q_type_dict[video_type]["w/o"]["answered"]
-        total_correct_w = q_type_dict[video_type]["w"]["correct"]
-        total_answered_w = q_type_dict[video_type]["w"]["answered"]
+            total_correct_wo = q_type_dict[video_type]["w/o"]["correct"]
+            total_answered_wo = q_type_dict[video_type]["w/o"]["answered"]
 
-        overall_results[video_type] = {
-            "w/o": 100 * total_correct_wo / total_answered_wo if total_answered_wo > 0 else 0,
-            "w": 100 * total_correct_w / total_answered_w if total_answered_w > 0 else 0
+            overall_results[video_type] = {
+                    "w/o": 100 * total_correct_wo / total_answered_wo if total_answered_wo > 0 else 0
+            }
+
+        # Calculate overall performance for the entire dataset
+        total_correct_wo = sum([q_type_dict[video_type]["w/o"]["correct"] for video_type in video_types])
+        total_answered_wo = sum([q_type_dict[video_type]["w/o"]["answered"] for video_type in video_types])
+
+        overall_results["Overall"] = {
+            "w/o": 100 * total_correct_wo / total_answered_wo if total_answered_wo > 0 else 0
         }
 
-    # Calculate overall performance for the entire dataset
-    total_correct_wo = sum([q_type_dict[video_type]["w/o"]["correct"] for video_type in video_types])
-    total_answered_wo = sum([q_type_dict[video_type]["w/o"]["answered"] for video_type in video_types])
-    total_correct_w = sum([q_type_dict[video_type]["w"]["correct"] for video_type in video_types])
-    total_answered_w = sum([q_type_dict[video_type]["w"]["answered"] for video_type in video_types])
-
-    overall_results["Overall"] = {
-        "w/o": 100 * total_correct_wo / total_answered_wo if total_answered_wo > 0 else 0,
-        "w": 100 * total_correct_w / total_answered_w if total_answered_w > 0 else 0
-    }
+        if i == 0:
+            row = [
+                overall_results["Overall"]["w/o"],overall_results.get("short", {}).get("w/o", 0),
+                overall_results.get("medium", {}).get("w/o", 0), overall_results.get("long", {}).get("w/o", 0)
+            ]
+            print(f"Results without subtitles: {row}")
+        else:
+            row = [
+                row[0], overall_results["Overall"]["w/o"], row[1], overall_results.get("short", {}).get("w/o", 0),
+                row[2], overall_results.get("medium", {}).get("w/o", 0), row[3], overall_results.get("long", {}).get("w/o", 0)
+            ]
+            print(f"Results with subtitles: {row}")
 
     # Save results to CSV
     output_dir = "eval_output"
@@ -168,6 +177,7 @@ def eval_your_results(
     os.makedirs(output_dir, exist_ok=True)
 
     file_exists = os.path.isfile(output_file)
+
     with open(output_file, 'a', newline='') as csvfile:
         csvwriter = csv.writer(csvfile)
 
@@ -175,15 +185,11 @@ def eval_your_results(
         if not file_exists:
             header = ["# Frames", "Focus Layers", "Focus Segments", "Selection Type", "Overall w/o", "Overall w", "Short w/o", "Short w", "Medium w/o", "Medium w", "Long w/o", "Long w"]
             csvwriter.writerow(header)
-
         # Write the new row of results
         row = [
-            nr_frames, focus_layers, focus_segments, selection_type,
-            overall_results["Overall"]["w/o"], overall_results["Overall"]["w"],
-            overall_results.get("Short", {}).get("w/o", 0), overall_results.get("Short", {}).get("w", 0),
-            overall_results.get("Medium", {}).get("w/o", 0), overall_results.get("Medium", {}).get("w", 0),
-            overall_results.get("Long", {}).get("w/o", 0), overall_results.get("Long", {}).get("w", 0)
+            nr_frames, focus_layers, focus_segments, selection_type, row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7]
         ]
+        print(f"Row to be written: {row}")
         csvwriter.writerow(row)
 
 
