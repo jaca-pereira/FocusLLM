@@ -272,7 +272,7 @@ if __name__ == "__main__":
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument('--focus_layers', help='Focus layers for the model.', required=True, type=str)
     parser.add_argument('--focus_segments', help='Focus segments for the model.', required=True, type=str)
-    parser.add_argument('--reforward', help='Reforward parameter for the model.', required=True, type=bool)
+    parser.add_argument('--reforward', help='Reforward parameter for the model.', required=True, type=lambda x: (str(x).lower() == 'true'))
     parser.add_argument('--nr_frames', help='Number of frames to process.', required=True, type=int)
     args = parser.parse_args()
 
