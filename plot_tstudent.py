@@ -117,8 +117,13 @@ def process_directory_structure(root_dir, model_name, baseline_dir_name='videomm
     return results
 
 # Example usage:
-root_dir = 'eval_output'
+root_dir = '../LLaVA-NeXT/eval_output'
 model_name = 'LLaVA-NeXT-Video-7B-DPO'
 #model_name = 'VideoLLaMA2-7B-16F'
 results = process_directory_structure(root_dir, model_name)
 save_ablation_results_to_csv(results)
+#write csv file to disk
+with open('ablation_results.csv', 'w') as f:
+    writer = csv.writer(f)
+    writer.writerows(results)
+
