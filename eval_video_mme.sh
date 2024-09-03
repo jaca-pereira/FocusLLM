@@ -11,38 +11,38 @@ cd ~/data/FocusLLM
 export 'PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:1024'
 
 focus_layers_list=(
-"3" "5" "8" "12" "16" "22" "28" "3" "5" "8" "12" "16" "22" "28" \
-"3" "5" "8" "12" "16" "22" "28" "3" "5" "8" "12" "16" "22" "28" \
-"3" "5" "8" "12" "16" "22" "28" "3" "5" "8" "12" "16" "22" "28" "3 8" "5 12" "8 16" \
-"3" "5" "8" "12" "16" "22" "28" "3" "5" "8" "12" "16" "22" "28" "3 8" "5 12" "8 16" \
+"8" "12" "16" "22" "28" "5" "8" "12" "16" "22" "28" \
+"5" "8" "12" "22" "5" "12" "22" \
+"5" "8" "12" "16" "22" "28" "5" "8" "12" "22" "28" "3 5" "3 8" "5 8" \
+"5" "8" "12" "16" "22" "28" "5" "8" "12" "16" "22" "28" "3 5" "3 8" "5 8" \
 "3" "5" "8" "12" "16" "22" "28" "3" "5" "8" "12" "16" "22" "28" "3 8" "5 12" "8 16" "3 8 12" "5 12 16" \
-"3" "5" "8" "12" "16" "22" "28" "3" "5" "8" "12" "16" "22" "28" "3 8" "5 12" "8 16" "3 8 12" "5 12 16"
+"5" "8" "12" "16" "22" "28" "3" "5" "8" "12" "16" "22" "28" "3 8" "5 12" "8 16" "3 8 12" "5 12 16"
 )
 
 focus_segments_list=(
-"1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" \
-"1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" \
-"1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "2 1" "2 1" "2 1" \
-"1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "3 1" "3 1" "3 1" \
-"1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "3 1" "3 1" "3 1" "4 2 1" "4 2 1" \
+"1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" \
+"1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" \
+"1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "2 1" "2 1" "2 1" \
+"1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "3 1" "3 1" "3 1" \
+"1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "3 1" "3 1" "3 1" "4 2 1" "4 2 1" \
 "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "1" "3 1" "3 1" "3 1" "5 3 1" "5 3 1" )
 
 
 
 reforward_list=(
-True True True True True True True False False False False False False False \
-True True True True True True True False False False False False False False \
-True True True True True True True False False False False False False False False False False \
-True True True True True True True False False False False False False False False False False \
-True True True True True True True False False False False False False False False False False False False \
+True True True True True False False False False False False \
+True True True True False False False \
+True True True True True True False False False False False False False False\
+True True True True True True False False False False False False False False False \
+True True True True True True False False False False False False False False False False False False \
 True True True True True True True False False False False False False False False False False False False )
 
 nr_frames_list=(
-32 32 32 32 32 32 32 32 32 32 32 32 32 32 \
-48 48 48 48 48 48 48 48 48 48 48 48 48 48 \
-64 64 64 64 64 64 64 64 64 64 64 64 64 64 64 64 64 \
-80 80 80 80 80 80 80 80 80 80 80 80 80 80 80 80 80 \
-96 96 96 96 96 96 96 96 96 96 96 96 96 96 96 96 96 96 96 \
+32 32 32 32 32 32 32 32 32 32 32 32 \
+48 48 48 48 48 48 48 \
+64 64 64 64 64 64 64 64 64 64 64 64 64 64 \
+80 80 80 80 80 80 80 80 80 80 80 80 80 80 80 \
+96 96 96 96 96 96 96 96 96 96 96 96 96 96 96 96 96 96 \
 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 128 )
 
 
