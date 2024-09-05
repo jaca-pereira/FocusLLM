@@ -6,14 +6,13 @@ import traceback
 from tqdm import tqdm
 from multiprocessing.pool import Pool
 
-from openai import AzureOpenAI
+from openai import AzureOpenAI, OpenAI
 
 
 def init():
-    client = AzureOpenAI(
-        azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT"), 
-        api_key=os.getenv("AZURE_OPENAI_KEY"),  
-        api_version="2024-02-15-preview"
+    client = OpenAI(
+        # This is the default and can be omitted
+        api_key=args.api_key
     )
 
     return client
@@ -21,14 +20,8 @@ def init():
 
 def interaction(client, message_text):
     completion = client.chat.completions.create(
-        model=os.getenv("AZURE_OPENAI_DEPLOYNAME"),
-        messages = message_text,
-        temperature=0.7,
-        max_tokens=800,
-        top_p=0.95,
-        frequency_penalty=0,
-        presence_penalty=0,
-        stop=None
+        model="gpt-3.5-turbo",
+        messages=message_text
     )
 
     return completion
@@ -198,14 +191,7 @@ if __name__ == "__main__":
     parser.add_argument("--output-json", required=True, help="The path to save annotation final combined json file.")
     parser.add_argument("--num-tasks", required=True, type=int, help="Number of splits.")
     parser.add_argument("--api-key", required=True, type=str, help="Azure Openai API key.")
-    parser.add_argument("--api-endpoint", required=True, type=str, help="Azure Openai API endpoint.")
-    parser.add_argument("--api-deployname", required=True, type=str, help="Azure Openai API deployname.")
     args = parser.parse_args()
-
-    # Set the OpenAI API key.
-    os.environ["AZURE_OPENAI_KEY"] = args.api_key
-    os.environ["AZURE_OPENAI_ENDPOINT"] = args.api_endpoint
-    os.environ["AZURE_OPENAI_DEPLOYNAME"] = args.api_deployname
 
     client = init()
 

@@ -7,35 +7,10 @@ import traceback
 from tqdm import tqdm
 from multiprocessing.pool import Pool
 
-from openai import AzureOpenAI
+from openai import AzureOpenAI, OpenAI
 
 
-def init():
-    client = AzureOpenAI(
-        azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT"), 
-        api_key=os.getenv("AZURE_OPENAI_KEY"),  
-        api_version="2024-02-15-preview"
-    )
-
-    return client
-
-
-def interaction(client, message_text):
-    completion = client.chat.completions.create(
-        model=os.getenv("AZURE_OPENAI_DEPLOYNAME"),
-        messages = message_text,
-        temperature=0.7,
-        max_tokens=800,
-        top_p=0.95,
-        frequency_penalty=0,
-        presence_penalty=0,
-        stop=None
-    )
-
-    return completion
-
-
-def prompt_gpt(question, answer, pred, key, qa_set, output_dir):
+def prompt_gpt(question, answer, pred, key, qa_set, output_dir, client):
     message = [
         {
             "role": "system",
@@ -61,7 +36,10 @@ def prompt_gpt(question, answer, pred, key, qa_set, output_dir):
                 "For example, your response should look like this: {'pred': 'yes', 'score': 4.8}."
         }
     ]
-    completion = interaction(client, message)
+    completion = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=message
+    )
     # Convert response to a Python dictionary.
     response_message = completion.choices[0].message.content
     response_dict = ast.literal_eval(response_message)
@@ -76,7 +54,10 @@ def annotate(prediction_set, caption_files, output_dir, args):
     Evaluates question and answer pairs using GPT-3
     Returns a score for correctness.
     """
-    
+    client = OpenAI(
+        # This is the default and can be omitted
+        api_key=args.api_key
+    )
     for file in tqdm(caption_files):
         key = file[:-5] # Strip file extension
         qa_set = prediction_set[key]
@@ -84,7 +65,7 @@ def annotate(prediction_set, caption_files, output_dir, args):
         answer = qa_set['a']
         pred = qa_set['p']
         try:
-            prompt_gpt(question, answer, pred, key, qa_set, output_dir)
+            prompt_gpt(question, answer, pred, key, qa_set, output_dir, client)
         except Exception as e:
             traceback.print_exc()
             prompt_gpt(question, answer, pred[:50], key, qa_set, output_dir)
@@ -205,15 +186,6 @@ if __name__ == "__main__":
     parser.add_argument("--output-json", required=True, help="The path to save annotation final combined json file.")
     parser.add_argument("--num-tasks", required=True, type=int, help="Number of splits.")
     parser.add_argument("--api-key", required=True, type=str, help="Azure Openai API key.")
-    parser.add_argument("--api-endpoint", required=True, type=str, help="Azure Openai API endpoint.")
-    parser.add_argument("--api-deployname", required=True, type=str, help="Azure Openai API deployname.")
+
     args = parser.parse_args()
-
-    # Set the OpenAI API key.
-    os.environ["AZURE_OPENAI_KEY"] = args.api_key
-    os.environ["AZURE_OPENAI_ENDPOINT"] = args.api_endpoint
-    os.environ["AZURE_OPENAI_DEPLOYNAME"] = args.api_deployname
-
-    client = init()
-
     main(args)

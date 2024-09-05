@@ -4,6 +4,8 @@ import math
 import json
 import argparse
 import warnings
+
+import numpy as np
 from tqdm import tqdm
 
 import torch
@@ -27,12 +29,38 @@ def get_chunk(lst, n, k):
     chunks = split_list(lst, n)
     return chunks[k]
 
+def get_seq_frames(total_num_frames, desired_num_frames):
+    """
+    Calculate the indices of frames to extract from a video.
+
+    Parameters:
+    total_num_frames (int): Total number of frames in the video.
+    desired_num_frames (int): Desired number of frames to extract.
+
+    Returns:
+    list: List of indices of frames to extract.
+    """
+
+    # Calculate the size of each segment from which a frame will be extracted
+    seg_size = float(total_num_frames - 1) / desired_num_frames
+
+    seq = []
+    for i in range(desired_num_frames):
+        # Calculate the start and end indices of each segment
+        start = int(np.round(seg_size * i))
+        end = int(np.round(seg_size * (i + 1)))
+
+        # Append the middle index of the segment to the list
+        seq.append((start + end) // 2)
+
+    return seq
 
 class VCGPTDataset(Dataset):
 
     video_formats = ['.mp4', '.avi', '.mov', '.mkv']
 
-    def __init__(self, data_list, processor):
+    def __init__(self, video_folder, data_list, processor):
+        self.video_folder = video_folder
         self.data_list = data_list
         self.processor = processor
 
@@ -47,7 +75,7 @@ class VCGPTDataset(Dataset):
         video_name = line['video_name']
 
         for fmt in self.video_formats:  # Added this line
-            temp_path = os.path.join(args.video_folder, f"{video_name}{fmt}")
+            temp_path = os.path.join(self.video_folder, f"{video_name}{fmt}")
             if os.path.exists(temp_path):
                 video_path = temp_path
                 break
@@ -75,13 +103,13 @@ def collate_fn(batch):
 
 def run_inference(args):
     # Initialize the model
-    model, processor, tokenizer, version = model_init(args.model_path)
+    model, processor, tokenizer, version = model_init(args.model_path, args.focus_layers, args.focus_segments, args.reforward, args.nr_frames)
 
     questions = json.load(open(args.question_file, "r"))
     questions = get_chunk(questions, args.num_chunks, args.chunk_idx)
 
     assert args.batch_size == 1, "Batch size must be 1 for inference"
-    dataset = VCGPTDataset(questions, processor)
+    dataset = VCGPTDataset(args.video_folder, questions, processor)
     dataloader = DataLoader(dataset, shuffle=False, batch_size=args.batch_size, num_workers=args.num_workers, collate_fn=collate_fn)
 
     answer_file = os.path.expanduser(args.answer_file)
@@ -141,7 +169,11 @@ if __name__ == "__main__":
     parser.add_argument("--model_max_length", type=int, required=False, default=2048)
     parser.add_argument("--batch-size", type=int, required=False, default=1)
     parser.add_argument("--num-workers", type=int, required=False, default=8)
-
+    parser.add_argument('--focus_layers', help='Focus layers for the model.', required=True, type=str)
+    parser.add_argument('--focus_segments', help='Focus segments for the model.', required=True, type=str)
+    parser.add_argument('--reforward', help='Reforward parameter for the model.', required=True,
+                        type=lambda x: (str(x).lower() == 'true'))
+    parser.add_argument('--nr_frames', help='Number of frames to process.', required=True, type=int)
     args = parser.parse_args()
 
     run_inference(args)

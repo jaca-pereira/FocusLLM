@@ -3,6 +3,8 @@ import json
 import math
 import argparse
 import warnings
+
+import numpy as np
 from tqdm import tqdm
 
 import sys
@@ -23,10 +25,35 @@ def get_chunk(lst, n, k):
     chunks = split_list(lst, n)
     return chunks[k]
 
+def get_seq_frames(total_num_frames, desired_num_frames):
+    """
+    Calculate the indices of frames to extract from a video.
+
+    Parameters:
+    total_num_frames (int): Total number of frames in the video.
+    desired_num_frames (int): Desired number of frames to extract.
+
+    Returns:
+    list: List of indices of frames to extract.
+    """
+
+    # Calculate the size of each segment from which a frame will be extracted
+    seg_size = float(total_num_frames - 1) / desired_num_frames
+
+    seq = []
+    for i in range(desired_num_frames):
+        # Calculate the start and end indices of each segment
+        start = int(np.round(seg_size * i))
+        end = int(np.round(seg_size * (i + 1)))
+
+        # Append the middle index of the segment to the list
+        seq.append((start + end) // 2)
+
+    return seq
 
 def run_inference(args):
     # Initialize the model
-    model, processor, tokenizer, version = model_init(args.model_path)
+    model, processor, tokenizer, version = model_init(args.model_path, args.focus_layers, args.focus_segments, args.reforward, args.nr_frames)
 
     gt_questions = json.load(open(args.question_file, "r"))
     gt_questions = get_chunk(gt_questions, args.num_chunks, args.chunk_idx)
@@ -88,6 +115,12 @@ if __name__ == "__main__":
     parser.add_argument("--num-chunks", type=int, default=1)
     parser.add_argument("--chunk-idx", type=int, default=0)
     parser.add_argument("--device", type=str, required=False, default='cuda:0')
+    parser.add_argument('--focus_layers', help='Focus layers for the model.', required=True, type=str)
+    parser.add_argument('--focus_segments', help='Focus segments for the model.', required=True, type=str)
+    parser.add_argument('--reforward', help='Reforward parameter for the model.', required=True,
+                        type=lambda x: (str(x).lower() == 'true'))
+    parser.add_argument('--nr_frames', help='Number of frames to process.', required=True, type=int)
+
     args = parser.parse_args()
 
     run_inference(args)
