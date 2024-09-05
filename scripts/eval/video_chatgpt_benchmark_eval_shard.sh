@@ -24,6 +24,7 @@ GPUS_PER_TASK=1
 CHUNKS=$((${#GPULIST[@]}/$GPUS_PER_TASK))
 
 
+
 output_file=${OUTPUT_DIR}/answers/correctness/${CKPT_NAME}/merge.json
 
 if [ ! -f "$output_file" ]; then
@@ -37,10 +38,10 @@ if [ ! -f "$output_file" ]; then
             --answer-file ${OUTPUT_DIR}/answers/correctness/${CKPT_NAME}/${CHUNKS}_${IDX}.json \
             --num-chunks $CHUNKS \
             --chunk-idx $IDX \
-            --focus_layers "-1" \
-            --focus_segments "-1" \
+            --focus_layers "16" \
+            --focus_segments "1" \
             --reforward True \
-            --for_get_frames_num 16 \
+            --nr_frames 80 \
             &
     done
 
@@ -98,10 +99,10 @@ if [ ! -f "$output_file" ]; then
             --answer-file ${OUTPUT_DIR}/answers/temporal/${CKPT_NAME}/${CHUNKS}_${IDX}.json \
             --num-chunks $CHUNKS \
             --chunk-idx $IDX \
-            --focus_layers "-1" \
-            --focus_segments "-1" \
+            --focus_layers "16" \
+            --focus_segments "1" \
             --reforward True \
-            --for_get_frames_num 16 \
+            --nr_frames 80 \
             &
     done
 
@@ -139,10 +140,10 @@ if [ ! -f "$output_file" ]; then
             --answer-file ${OUTPUT_DIR}/answers/consistency/${CKPT_NAME}/${CHUNKS}_${IDX}.json \
             --num-chunks $CHUNKS \
             --chunk-idx $IDX \
-            --focus_layers "-1" \
-            --focus_segments "-1" \
+            --focus_layers "16" \
+            --focus_segments "1" \
             --reforward True \
-            --for_get_frames_num 16 \
+            --nr_frames 80 \
             &
     done
 

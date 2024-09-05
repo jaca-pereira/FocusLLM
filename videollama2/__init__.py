@@ -62,7 +62,7 @@ def model_init(model_path=None, focus_layers=None, smooth_forward_segments=None,
     else:
         # mistral/mixtral/llama2
         version = 'llama_2'
-    print(f"Current evaluation args:\nnum_frames={num_frames},\nfocus_layers={model.get_model().config.focus_layers},\nsmooth_forward_segments={model.get_model().config.smooth_forward_segments},\nreforward={model.get_model().config.reforward}")
+
     return model, partial(process_video, aspect_ratio=None, processor=processor, num_frames=num_frames, sample_scheme="uniform"), tokenizer, version
     #return model, partial(process_video, aspect_ratio=None, processor=processor, num_frames=num_frames), tokenizer, version
 

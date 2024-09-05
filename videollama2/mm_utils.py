@@ -443,6 +443,11 @@ def process_video(video_path, processor, aspect_ratio='pad', num_frames=NUM_FRAM
             except:
                 video_data = decord_vr.get_batch(frame_id_list).asnumpy()
 
+            #save frames
+            for i, frame in enumerate(video_data):
+                img = Image.fromarray(frame)
+                img.save(f"./results_64/{video_path.split('/')[-1]}_{i}.png")
+
             # if self.data_args.use_temp_aug:
             #     frame_id_list = np.linspace(0, duration-1, num_frames * 2 * 2, dtype=int)
             #     video_data = decord_vr.get_batch(frame_id_list)

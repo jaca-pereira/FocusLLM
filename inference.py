@@ -15,7 +15,7 @@ from videollama2.model.builder import load_pretrained_model
 
 def inference():
     # Video Inference
-    paths = ['assets/cat_and_chicken.mp4']
+    paths = ['assets/RoadAccidents127_x264.mp4']
     #questions = ['Summarize the events in the video and name the main animals that appear.'] #para replicar o link
     #questions = ['Summarize the events in the video and name the main objects that appear.'] #QUANDO PEDIMOS OBJETOS ELE COMPORTA-SE DE FORMA ESTRANHA. Ou ent quando é a dividir por 4  e a mask nao fica bem setup ele começa a dar links
     questions = ['What happens in this video?']
@@ -42,7 +42,7 @@ def inference():
     model.get_model().config.plot_sys_user_prompt_sim = False
     # model.get_model().config.video_name = paths[0].split('/')[-1].removesuffix('.mp4')
     model.get_model().config.reforward = False
-    num_frames = 96
+    num_frames = 64
     conv_mode = 'llama_2'
 
     # 2. Visual preprocess (load & transform image or video).
