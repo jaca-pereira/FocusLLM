@@ -1,3 +1,5 @@
+import pickle
+
 import numpy as np
 import torch
 from altair import layer
@@ -17,6 +19,11 @@ from videollama2.model.language_model.ToMe import bipartite_soft_matching, merge
 
 logger = logging.get_logger(__name__)
 
+
+def plot_indices_in_images(indices, video):
+    pass
+
+
 class FocusLLMModel(MistralModel):
     def __init__(self, config: MistralConfig):
         super().__init__(config)
@@ -31,6 +38,8 @@ class FocusLLMModel(MistralModel):
         else:
             indices = [chunk.flatten().topk(self.image_video_tokens, largest=True, dim=-1).indices.sort(dim=-1).values
                        for chunk in attention_scores.chunk(smooth_forward_segments)]
+
+
         return indices
 
     def update_hidden_states(self, hidden_states, topk_idx):
@@ -143,7 +152,7 @@ class FocusLLMModel(MistralModel):
             last_attention = layer_outputs[1] if layer_idx in self.config.focus_layers - 1 else None
             return layer_outputs[0], last_attention, past_key_values
 
-    def focus_llm_forward(self, hidden_states, attention_mask, position_ids, inputs_embeds, past_key_values, device, output_attentions, output_hidden_states, use_cache):
+    def focus_llm_forward(self, hidden_states, attention_mask, position_ids, inputs_embeds, past_key_values, device, output_attentions, output_hidden_states, use_cache, video=None):
         """Reimplementation of the forward pass for Mistral LLM with focus on efficiency."""
         seq_length = hidden_states.shape[1]
         if self.config.focus_llm and seq_length > 1:
@@ -182,6 +191,7 @@ class FocusLLMModel(MistralModel):
                             0]
                         topk_idx = self.process_attention_scores(image_attention_score,
                                                                  smooth_forward_segments=smooth_forward_segments)
+
                         if layer_idx == self.config.focus_layers[-1] and self.config.reforward:
                             hidden_states = self.update_hidden_states(inputs_embeds, topk_idx)
                             past_key_values = DynamicCache()

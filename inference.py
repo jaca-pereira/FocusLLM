@@ -1,4 +1,5 @@
 import argparse
+from copyreg import pickle
 
 import numpy as np
 import torch
@@ -11,14 +12,15 @@ from videollama2.constants import DEFAULT_MMODAL_TOKEN, MMODAL_TOKEN_INDEX
 from videollama2.mm_utils import get_model_name_from_path, tokenizer_MMODAL_token, process_video, process_image, visualize_average_attention, visualize_attention_vectors, \
     visualize_hidden_states, visualize_hidden_states_distribution
 from videollama2.model.builder import load_pretrained_model
-
-
+import pickle
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 def inference():
     # Video Inference
     paths = ['assets/RoadAccidents127_x264.mp4']
     #questions = ['Summarize the events in the video and name the main animals that appear.'] #para replicar o link
     #questions = ['Summarize the events in the video and name the main objects that appear.'] #QUANDO PEDIMOS OBJETOS ELE COMPORTA-SE DE FORMA ESTRANHA. Ou ent quando é a dividir por 4  e a mask nao fica bem setup ele começa a dar links
-    questions = ['What happens in this video?']
+    questions = ['What happens to the truck and the train?']
     #questions = ['What is your opinion on the goal scored by Cristiano Ronaldo?']
     modal_list = ['video']
     #modal_list = ['image']
@@ -31,18 +33,20 @@ def inference():
     tokenizer, model, processor, context_len = load_pretrained_model(model_path, None, model_name)
     model = model.to('cuda:0')
     model.get_model().config.ratio = 0.5
-    model.get_model().config.focus_layers = np.array([3, 5, 8])
-    model.get_model().config.smooth_forward_segments = np.array([4, 2, 1])
-    model.get_model().config.focus_llm = True
+    model.get_model().config.focus_layers = np.array([-1])
+    #model.get_model().config.focus_layers = np.array([3, 5, 8])
+    model.get_model().config.smooth_forward_segments = np.array([1])
+    #model.get_model().config.smooth_forward_segments = np.array([4, 2, 1])
+    model.get_model().config.focus_llm = False
     model.get_model().config.pos_ids = True
     model.get_model().config.individual_pos_ids = True
-    model.get_model().config.segment_pruning = True
-    model.get_model().config.use_cpu = True
-    model.get_model().config.use_sequential = True
+    model.get_model().config.segment_pruning = False
+    model.get_model().config.use_cpu = False
+    model.get_model().config.use_sequential = False
     model.get_model().config.plot_sys_user_prompt_sim = False
     # model.get_model().config.video_name = paths[0].split('/')[-1].removesuffix('.mp4')
-    model.get_model().config.reforward = False
-    num_frames = 64
+    model.get_model().config.reforward = True
+    num_frames = 16
     conv_mode = 'llama_2'
 
     # 2. Visual preprocess (load & transform image or video).
@@ -91,6 +95,11 @@ def inference():
     visualize_attention_vectors(attentions, output_ids, tokenizer, modal_token_position, model.model.image_video_tokens, filename, video_path, prompt)"""
     response = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
     print(response[0])
+    #read top idx
+
+    #save top idx
+
+
 
 
 if __name__ == "__main__":

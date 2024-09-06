@@ -23,8 +23,6 @@ IFS=',' read -ra GPULIST <<< "$gpu_list"
 GPUS_PER_TASK=1
 CHUNKS=$((${#GPULIST[@]}/$GPUS_PER_TASK))
 
-
-
 output_file=${OUTPUT_DIR}/answers/correctness/${CKPT_NAME}/merge.json
 
 if [ ! -f "$output_file" ]; then
@@ -41,7 +39,7 @@ if [ ! -f "$output_file" ]; then
             --focus_layers "16" \
             --focus_segments "1" \
             --reforward True \
-            --nr_frames 80 \
+            --nr_frames 64 \
             &
     done
 
@@ -102,7 +100,7 @@ if [ ! -f "$output_file" ]; then
             --focus_layers "16" \
             --focus_segments "1" \
             --reforward True \
-            --nr_frames 80 \
+            --nr_frames 64 \
             &
     done
 
@@ -143,7 +141,7 @@ if [ ! -f "$output_file" ]; then
             --focus_layers "16" \
             --focus_segments "1" \
             --reforward True \
-            --nr_frames 80 \
+            --nr_frames 64 \
             &
     done
 
