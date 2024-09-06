@@ -1,13 +1,5 @@
 #!/bin/bash
 
-eval "$(conda shell.bash hook)"
-
-conda activate focus
-
-echo $CONDA_DEFAULT_ENV
-
-cd ~/data/FocusLLM
-
 set -x
 
 EVAL_DATA_DIR=eval/videochatgpt
@@ -23,6 +15,19 @@ IFS=',' read -ra GPULIST <<< "$gpu_list"
 GPUS_PER_TASK=1
 CHUNKS=$((${#GPULIST[@]}/$GPUS_PER_TASK))
 
+# Parse arguments
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --focus_layers) focus_layers="$2"; shift ;;
+        --focus_segments) focus_segments="$2"; shift ;;
+        --reforward) reforward="$2"; shift ;;
+        --nr_frames) nr_frames="$2"; shift ;;
+        *) echo "Unknown parameter passed: $1"; exit 1 ;;
+    esac
+    shift
+done
+
+
 output_file=${OUTPUT_DIR}/answers/correctness/${CKPT_NAME}/merge.json
 
 if [ ! -f "$output_file" ]; then
@@ -36,10 +41,10 @@ if [ ! -f "$output_file" ]; then
             --answer-file ${OUTPUT_DIR}/answers/correctness/${CKPT_NAME}/${CHUNKS}_${IDX}.json \
             --num-chunks $CHUNKS \
             --chunk-idx $IDX \
-            --focus_layers "16" \
-            --focus_segments "1" \
-            --reforward True \
-            --nr_frames 64 \
+            --focus_layers $focus_layers \
+            --focus_segments $focus_segments \
+            --reforward $reforward \
+            --nr_frames $nr_frames \
             &
     done
 
@@ -65,6 +70,10 @@ python3 -m videollama2.eval.eval_video_oqa_vcgpt_1_correctness \
     --output-json ${OUTPUT_DIR}/answers/correctness/${CKPT_NAME}/results.json \
     --api-key $OPENAIKEY \
     --num-tasks 16 \
+    --focus_layers $focus_layers \
+    --focus_segments $focus_segments \
+    --reforward $reforward \
+    --nr_frames $nr_frames
 
 
 python3 -m videollama2.eval.eval_video_oqa_vcgpt_2_detailed_orientation \
@@ -73,6 +82,10 @@ python3 -m videollama2.eval.eval_video_oqa_vcgpt_2_detailed_orientation \
     --output-json ${OUTPUT_DIR}/answers/detail/${CKPT_NAME}/results.json \
     --api-key $OPENAIKEY \
     --num-tasks 16 \
+    --focus_layers $focus_layers \
+    --focus_segments $focus_segments \
+    --reforward $reforward \
+    --nr_frames $nr_frames
 
 
 python3 -m videollama2.eval.eval_video_oqa_vcgpt_3_context \
@@ -81,6 +94,10 @@ python3 -m videollama2.eval.eval_video_oqa_vcgpt_3_context \
     --output-json ${OUTPUT_DIR}/answers/context/${CKPT_NAME}/results.json \
     --api-key $OPENAIKEY \
     --num-tasks 16 \
+    --focus_layers $focus_layers \
+    --focus_segments $focus_segments \
+    --reforward $reforward \
+    --nr_frames $nr_frames
 
 
 output_file=${OUTPUT_DIR}/answers/temporal/${CKPT_NAME}/merge.json
@@ -97,10 +114,10 @@ if [ ! -f "$output_file" ]; then
             --answer-file ${OUTPUT_DIR}/answers/temporal/${CKPT_NAME}/${CHUNKS}_${IDX}.json \
             --num-chunks $CHUNKS \
             --chunk-idx $IDX \
-            --focus_layers "16" \
-            --focus_segments "1" \
-            --reforward True \
-            --nr_frames 64 \
+            --focus_layers $focus_layers \
+            --focus_segments $focus_segments \
+            --reforward $reforward \
+            --nr_frames $nr_frames \
             &
     done
 
@@ -121,7 +138,11 @@ python3 -m videollama2.eval.eval_video_oqa_vcgpt_4_temporal \
     --output-dir ${OUTPUT_DIR}/answers/temporal/${CKPT_NAME}/gpt \
     --output-json ${OUTPUT_DIR}/answers/temporal/${CKPT_NAME}/results.json \
     --api-key $OPENAIKEY \
-    --num-tasks 16
+    --num-tasks 16 \
+    --focus_layers $focus_layers \
+    --focus_segments $focus_segments \
+    --reforward $reforward \
+    --nr_frames $nr_frames
 
 
 output_file=${OUTPUT_DIR}/answers/consistency/${CKPT_NAME}/merge.json
@@ -138,10 +159,10 @@ if [ ! -f "$output_file" ]; then
             --answer-file ${OUTPUT_DIR}/answers/consistency/${CKPT_NAME}/${CHUNKS}_${IDX}.json \
             --num-chunks $CHUNKS \
             --chunk-idx $IDX \
-            --focus_layers "16" \
-            --focus_segments "1" \
-            --reforward True \
-            --nr_frames 64 \
+            --focus_layers $focus_layers \
+            --focus_segments $focus_segments \
+            --reforward $reforward \
+            --nr_frames $nr_frames \
             &
     done
 
@@ -162,5 +183,9 @@ python3 -m videollama2.eval.eval_video_oqa_vcgpt_5_consistency \
     --output-dir ${OUTPUT_DIR}/answers/consistency/${CKPT_NAME}/gpt \
     --output-json ${OUTPUT_DIR}/answers/consistency/${CKPT_NAME}/results.json \
     --api-key $OPENAIKEY \
-    --num-tasks 16
+    --num-tasks 16 \
+    --focus_layers $focus_layers \
+    --focus_segments $focus_segments \
+    --reforward $reforward \
+    --nr_frames $nr_frames
 
